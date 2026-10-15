@@ -1,0 +1,28 @@
+{
+  "name": "prometheus",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "check": "tsc && prettier --check .",
+    "test": "node --test",
+    "worker": "node --env-file=.env worker/index.ts",
+    "relay": "node --env-file=.env relay/index.ts",
+    "seed": "node --env-file=.env scripts/seed.ts",
+    "probe": "node --env-file=.env scripts/probe.ts"
+  },
+  "dependencies": {
+    "@arkiv-network/sdk": "0.8.1",
+    "grammy": "1.46.0",
+    "viem": "2.57.7"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "vite": "8.3.4"
+  }
+}
