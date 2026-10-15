@@ -1,6 +1,6 @@
 # Arkiv friction log
 
-Environment for every entry unless noted: Tiramisu testnet, `@arkiv-network/sdk` 0.8.1, `viem` 2.57.7, Node 24.10.0, macOS. Probe script: [`scripts/probe.ts`](../scripts/probe.ts) (`npm run probe`).
+Measured 15–16 Oct 2026. Environment for every entry unless noted: Tiramisu testnet, `@arkiv-network/sdk` 0.8.1, `viem` 2.57.7, Node 24.10.0, macOS. Probe script: [`scripts/probe.ts`](../scripts/probe.ts) (`npm run probe`).
 
 ---
 
