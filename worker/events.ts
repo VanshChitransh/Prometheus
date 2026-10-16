@@ -17,6 +17,7 @@ import type { Receipts } from "./receipts.ts";
 import type { SubsIndex } from "./subs.ts";
 
 const MAX_IN_FLIGHT = 16;
+const MAX_ATTEMPTS = 10; // ~4 min of backoff (1 s → 30 s) before a persistent failure is dropped
 
 export function createDispatch(o: {
   pub: PublicArkivClient;
@@ -24,7 +25,9 @@ export function createDispatch(o: {
   targets: Targets;
   receipts: Pick<Receipts, "fire">;
   trustedWorkers: readonly Hex[];
+  retryBaseMs?: number; // first backoff step; tests shrink it
 }) {
+  const retryBaseMs = o.retryBaseMs ?? 1_000;
   const { pub, subs, targets, receipts } = o;
   const blocks = new Map<bigint, Promise<void>[]>();
   // A catch-up replays thousands of events at once; unbounded, each EntityCreated's free count hit
@@ -41,6 +44,31 @@ export function createDispatch(o: {
     } finally {
       active--;
       waiting.shift()?.();
+    }
+  }
+
+  // An event is never offered again (unlike an expiry, re-checked every head), so a handler or its
+  // fires that fail are retried, and the block doesn't settle meanwhile: the checkpoint waits rather
+  // than skip an alert. Every step is idempotent (subs re-add in place, fires dedupe by trigger id).
+  // ponytail: after MAX_ATTEMPTS it gives up loudly, so one permanent bug can't freeze the worker.
+  async function retrying<T>(what: string, fn: () => Promise<T>) {
+    for (let attempt = 1, delay = retryBaseMs; ; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        if (attempt >= MAX_ATTEMPTS) {
+          console.error(
+            `[events] ${what} failed ${attempt} times; dropped:`,
+            err,
+          );
+          return undefined;
+        }
+        console.warn(
+          `[events] ${what} failed (attempt ${attempt}); retrying in ${delay / 1000}s: ${(err as Error).message}`,
+        );
+        await new Promise((r) => setTimeout(r, delay));
+        delay = Math.min(delay * 2, 30 * retryBaseMs);
+      }
     }
   }
 
@@ -138,17 +166,13 @@ export function createDispatch(o: {
     // A block's events run concurrently (LLD §3.3), at most 16 at a time across blocks; each is filed
     // under its block for settle().
     onEvent(e: EntityEvent) {
-      // ponytail: a failed handler (e.g. an RPC timeout) is logged and the block still counts as
-      // handled, so one bad call can't freeze the checkpoint; the hourly re-sync (T2.8) repairs
-      // whatever it missed. Retry here if an hour of staleness ever matters.
-      // A handler's Later runs after its slot is freed, but still before the block settles.
-      const done = limited(() => handle(e))
-        .then((later) => later?.())
-        .then(
-          () => {},
-          (err) =>
-            console.error(`[events] ${e.type} ${e.entityKey} failed:`, err),
-        );
+      // A handler's Later runs after its slot is freed, but still before the block settles. Each
+      // phase retries on its own, so a failed fire doesn't redo the handler's counts; backoff sleeps
+      // never hold a dispatch slot.
+      const what = `${e.type} ${e.entityKey}`;
+      const done = retrying(what, () => limited(() => handle(e)))
+        .then((later) => later && retrying(`${what} receipts`, later))
+        .then(() => {});
       const list = blocks.get(e.blockNumber);
       if (list) list.push(done);
       else blocks.set(e.blockNumber, [done]);

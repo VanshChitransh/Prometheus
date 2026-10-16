@@ -72,21 +72,25 @@ function setup(
   const writer = {
     batch: async (p: any) => {
       f.batches.push(p);
+      // Refusals carry the engine's error name, as the Writer reports it.
+      const refuse = (errorName: string, reason: string) => ({
+        ok: false,
+        errorName,
+        reason,
+      });
       if (o.notExtended)
-        return {
-          ok: false,
-          reason:
-            "Transaction failed: entity 0x… already expires at block 1200, so extending it to 1150 would shorten its life",
-        };
+        return refuse(
+          "ExpiryNotExtended",
+          "entity 0x… already expires at block 1200, so extending it to 1150 would shorten its life",
+        );
       if (o.batch === "throw") throw new Error("network");
       if (o.batch === "expired")
-        return {
-          ok: false,
-          reason:
-            "Transaction failed: no entity 0x… — it may have been deleted, or have expired",
-        };
+        return refuse(
+          "EntityNotFound",
+          "no entity 0x… — it may have been deleted, or have expired",
+        );
       if (o.batch === "refused")
-        return { ok: false, reason: "execution reverted: something else" };
+        return refuse("InvalidOpType", "Transaction failed: something else");
       f.exp = p.extensions[0].expires.expiresAt;
       return { ok: true, value: {} };
     },

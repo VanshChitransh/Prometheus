@@ -144,12 +144,11 @@ export class Keeper {
       ],
     });
     if (r.ok) return undefined;
-    // Refused by the chain: the target lapsed between our read and the tx, or was extended further
-    // in the meantime ("already expires at block …, would shorten its life"), or something else.
-    if (/already expires at block/i.test(r.reason))
-      return skip("already_extended", seen);
-    if (/expired|no entity/i.test(r.reason))
-      return skip("already_expired", seen);
+    // Refused by the chain (a decoded engine error; infrastructure trouble throws instead).
+    if (r.errorName === "ExpiryNotExtended")
+      return skip("already_extended", seen); // extended further between our read and the tx
+    if (r.errorName === "EntityExpired" || r.errorName === "EntityNotFound")
+      return skip("already_expired", seen); // lapsed between our read and the tx
     return { event: "keep_failed", note: r.reason.slice(0, 200), seen };
   }
 }

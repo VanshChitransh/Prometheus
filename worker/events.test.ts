@@ -9,7 +9,11 @@ import { Targets } from "./expiry.ts";
 import { SubsIndex } from "./subs.ts";
 
 // No new_match subscriptions here: matching is covered in match.test.ts.
-const NO_FIRE = { receipts: { fire: async () => {} }, trustedWorkers: [] };
+const NO_FIRE = {
+  receipts: { fire: async () => "done" as const },
+  trustedWorkers: [],
+  retryBaseMs: 1,
+};
 
 const hex = (n: number, len = 64) =>
   `0x${n.toString(16).padStart(len, "0")}` as Hex;
@@ -100,6 +104,7 @@ function setup(o: { watched?: boolean; slow?: Promise<void> } = {}) {
     receipts: {
       fire: async (sub, subject, event, block, seen) => {
         fired.push({ sub: sub.key, subject, event, block, seen });
+        return "done" as const;
       },
     },
     trustedWorkers: [],
@@ -344,6 +349,7 @@ test("a match's fire waits outside the limiter, and its block still settles only
       fire: async () => {
         fires++;
         await held;
+        return "done" as const;
       },
     },
     trustedWorkers: [],
@@ -363,4 +369,84 @@ test("a match's fire waits outside the limiter, and its block still settles only
   assert.equal(settled, false); // but the checkpoint can't pass an unrecorded match
   release();
   await s;
+});
+
+test("a handler that fails is retried, and its block doesn't settle until it succeeds", async () => {
+  const subs = new SubsIndex();
+  let failures = 2;
+  const pub = {
+    request: async ({
+      method,
+      params,
+    }: {
+      method: string;
+      params: unknown[];
+    }) => {
+      if (method === "arkiv_getEntityCount") {
+        if (failures-- > 0) throw new Error("timeout"); // the "is it a subscription?" count
+        return 1;
+      }
+      return rpcSub(NEW_SUB, "new");
+    },
+  };
+  const d = createDispatch({
+    ...NO_FIRE,
+    pub: pub as never,
+    subs: () => subs,
+    targets: new Targets(),
+  });
+  d.onEvent({
+    ...created(NEW_SUB),
+    blockNumber: 10n,
+    transactionHash: hex(9),
+    logIndex: 0,
+  } as EntityEvent);
+  await d.settle(10n);
+  assert.ok(subs.get(NEW_SUB)); // not lost: the third attempt indexed it
+});
+
+test("a change receipt whose fire fails is retried until it's done (never offered again)", async () => {
+  const subs = new SubsIndex();
+  subs.add({ ...WATCHER, trigger: "changed", leadBlocks: undefined });
+  let calls = 0;
+  const d = createDispatch({
+    ...NO_FIRE,
+    pub: { request: async () => 0 } as never,
+    subs: () => subs,
+    targets: new Targets(),
+    receipts: { fire: async () => (++calls < 3 ? "failed" : "done") },
+  });
+  d.onEvent({
+    type: "EntityPatched",
+    entityKey: TARGET,
+    owner: OWNER,
+    blockNumber: 10n,
+    transactionHash: hex(9),
+    logIndex: 0,
+  } as EntityEvent);
+  await d.settle(10n);
+  assert.equal(calls, 3);
+});
+
+test("a persistent failure is dropped after the attempt cap, so the worker can't freeze", async () => {
+  let attempts = 0;
+  const d = createDispatch({
+    ...NO_FIRE,
+    pub: {
+      request: async () => {
+        attempts++;
+        throw new Error("rpc down");
+      },
+    } as never,
+    subs: () => new SubsIndex(),
+    targets: new Targets(),
+  });
+  d.onEvent({
+    ...created(OTHER),
+    blockNumber: 10n,
+    transactionHash: hex(9),
+    logIndex: 0,
+  } as EntityEvent);
+  await d.settle(10n);
+  assert.equal(attempts, 10);
 });

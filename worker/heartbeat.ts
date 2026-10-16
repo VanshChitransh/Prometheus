@@ -67,8 +67,15 @@ export async function startHeartbeat(
   const beat = async () => {
     try {
       const r = await writer.extend({ entityKey: key, expires: LIFETIME });
-      // Refused = the entity lapsed while we were running (e.g. 30+ minutes of failed beats): start over.
-      if (!r.ok) key = await create();
+      // Refused: start over only if it really lapsed (e.g. 30+ minutes of failed beats). Any other
+      // refusal would otherwise leave two live worker entities for up to 30 minutes.
+      if (!r.ok) {
+        if (await rawGetEntity(pub, key))
+          console.warn(
+            `[heartbeat] extend refused (${r.errorName}); entity still live`,
+          );
+        else key = await create();
+      }
       failures = 0;
     } catch (e) {
       failures++;

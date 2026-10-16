@@ -8,7 +8,7 @@ import type {
   ExtendEntityParameters,
   TxParams,
 } from "@arkiv-network/sdk";
-import { ContractFunctionRevertedError, ExecutionRevertedError } from "viem";
+import { engineRevert } from "./errors.ts";
 // The SDK's wallet type omits the public actions it adds at runtime; viem's standalone action is typed.
 import { getTransactionCount } from "viem/actions";
 import type { walletClient } from "../shared/arkiv.ts";
@@ -16,8 +16,9 @@ import type { walletClient } from "../shared/arkiv.ts";
 type Wallet = ReturnType<typeof walletClient>;
 
 // ok:false = the chain refused the write itself (e.g. extending an expired target): retrying won't help.
+// errorName is the engine's (EntityExpired, ExpiryNotExtended, …): branch on it, not on the text.
 export type WriteResult<T> =
-  { ok: true; value: T } | { ok: false; reason: string };
+  { ok: true; value: T } | { ok: false; errorName: string; reason: string };
 
 export class Writer {
   readonly #wallet: Wallet;
@@ -61,20 +62,9 @@ export class Writer {
     } catch (e) {
       // After any failure our count may be wrong (the tx may or may not have left): re-read it.
       this.#nonce = undefined;
-      if (isRevert(e)) return { ok: false, reason: (e as Error).message };
+      const revert = engineRevert(e);
+      if (revert) return { ok: false, ...revert };
       throw e;
     }
   }
-}
-
-// The SDK wraps every failure in EntityMutationError, network ones included, so look for viem's
-// revert error in the cause chain instead.
-export function isRevert(e: unknown): boolean {
-  for (let x = e; x instanceof Error; x = x.cause)
-    if (
-      x instanceof ContractFunctionRevertedError ||
-      x instanceof ExecutionRevertedError
-    )
-      return true;
-  return false;
 }

@@ -57,7 +57,8 @@ async function fake(
     failCount: false,
     batches: [] as Hex[][],
     fileDuringSend: "",
-    next: undefined as "throw" | "refuse" | undefined,
+    next: undefined as "throw" | "refuse" | "landThenThrow" | undefined,
+    refuseId: undefined as Hex | undefined, // refuse any batch holding this receipt
   };
   const pub = {
     request: async ({ params }: { params: [{ query: string }] }) => {
@@ -81,8 +82,23 @@ async function fake(
       f.fileDuringSend = await readFile(file, "utf8");
       const outcome = f.next;
       f.next = undefined;
+      const ids = p.creates.map(
+        (c) =>
+          JSON.stringify(c.attributes.trigger_id).match(
+            /0x[0-9a-f]{64}/,
+          )![0] as Hex,
+      );
       if (outcome === "throw") throw new Error("network");
-      if (outcome === "refuse") return { ok: false, reason: "bad receipt" };
+      if (outcome === "landThenThrow") {
+        for (const id of ids) f.landed.add(id); // it went out; only the receipt wait failed
+        throw new Error("receipt wait timed out");
+      }
+      if (outcome === "refuse" || (f.refuseId && ids.includes(f.refuseId)))
+        return {
+          ok: false,
+          errorName: "InvalidValueType",
+          reason: "bad receipt",
+        };
       // The SDK's bytes32() value: { value: 0x… } (any shape works; we only count batches).
       f.batches.push(
         p.creates.map((c) => JSON.stringify(c.attributes.trigger_id) as Hex),
@@ -188,18 +204,37 @@ test("a batch that throws is requeued and retried after the backoff", async () =
   }
 });
 
-test("a refused batch is dropped and logged; later receipts still go out", async () => {
+test("a refused batch is resent one at a time, so only the malformed receipt is dropped", async () => {
   const { f, r } = await fake();
   r.onHead(1_000n);
   for (let b = 1n; b <= 10n; b++) await r.fire(SUB, TARGET, "warned", b);
-  f.next = "refuse";
-  r.onHead(1_001n);
-  await until(() => r.queued === 0 && f.fileDuringSend !== "", "the drop");
-  await new Promise((res) => setTimeout(res, 20));
-  for (let b = 11n; b <= 20n; b++) await r.fire(SUB, TARGET, "warned", b);
-  r.onHead(1_010n);
-  await until(() => f.batches.length === 1, "the next flush");
-  assert.equal(f.batches[0]!.length, 10);
+  f.refuseId = idFor(3n); // one bad receipt in the batch
+  for (let h = 1_001n; f.batches.flat().length < 9 && h < 1_200n; h += 5n) {
+    r.onHead(h);
+    await new Promise((res) => setTimeout(res, 15));
+  }
+  assert.equal(f.batches.flat().length, 9); // the 9 good ones landed, one per transaction
+  assert.equal(r.queued, 0);
+});
+
+test("a send that threw after it went out isn't written twice", async () => {
+  mock.timers.enable({ apis: ["Date"] });
+  try {
+    const { f, r } = await fake();
+    r.onHead(1_000n);
+    for (let b = 1n; b <= 10n; b++) await r.fire(SUB, TARGET, "warned", b);
+    f.next = "landThenThrow";
+    r.onHead(1_001n);
+    await until(() => r.queued === 10 && f.landed.size === 10, "the requeue");
+    await new Promise((res) => setTimeout(res, 20));
+    mock.timers.tick(1_000);
+    r.onHead(1_010n);
+    await until(() => r.queued === 0, "the recheck");
+    await new Promise((res) => setTimeout(res, 20));
+    assert.equal(f.batches.length, 0); // every one was already on chain: nothing resent
+  } finally {
+    mock.timers.reset();
+  }
 });
 
 test("resume() requeues only the receipts that never landed", async () => {

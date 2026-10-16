@@ -91,6 +91,7 @@ function monitor(alive: bigint | null) {
   const receipts = {
     fire: async (_s: Sub, _t: Hex, event: string, block: bigint) => {
       f.fired.push(`${event}@${block}`);
+      return "done" as const;
     },
   };
   const m = new ExpiryMonitor({

@@ -55,6 +55,7 @@ async function run(subs: Sub[], count = (_q: string) => 1, owner = OWNER) {
         assert.equal(subject, ENTITY);
         assert.deepEqual(seen, { creator: owner, owner });
         fired.push(`${s.label}:${ev}@${block}`);
+        return "done" as const;
       },
     },
     workers: [WORKER],

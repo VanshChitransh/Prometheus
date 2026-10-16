@@ -6,7 +6,7 @@ import type { Hex } from "viem";
 import { freeCount } from "../shared/arkiv.ts";
 import { withKey } from "../shared/searchAst.ts";
 import type { Sub } from "../shared/subscription.ts";
-import type { Receipts } from "./receipts.ts";
+import { throwIfFailed, type Receipts } from "./receipts.ts";
 
 // Work a handler leaves for after its dispatch slot is freed, but before its block settles.
 export type Later = () => Promise<unknown>;
@@ -49,5 +49,5 @@ export async function matchCreated(o: {
           owner: e.owner, // creator = owner at birth
         }),
       ),
-    );
+    ).then(throwIfFailed); // never offered again: a failed fire throws, the dispatcher retries
 }
