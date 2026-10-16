@@ -51,7 +51,13 @@ await receipts.resume(); // receipts a crash left unsent
 // LLD §3.2 step 4: today's counts, so a restart doesn't reset max_per_day.
 await rebuildDayCounts(pub, subs, receipts, head, cfg.trustedWorkers);
 const expiry = new ExpiryMonitor({ pub, targets, subs: () => subs, receipts });
-const dispatch = createDispatch({ pub, subs: () => subs, targets });
+const dispatch = createDispatch({
+  pub,
+  subs: () => subs,
+  targets,
+  receipts,
+  trustedWorkers: cfg.trustedWorkers,
+});
 
 const stopStream = startStream({
   ws: publicWs(cfg.ws),

@@ -2,10 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { EntityEvent } from "@arkiv-network/sdk";
 import { toHex, type Hex } from "viem";
+import { parseSearch } from "../shared/searchAst.ts";
 import type { Sub } from "../shared/subscription.ts";
 import { createDispatch } from "./events.ts";
 import { Targets } from "./expiry.ts";
 import { SubsIndex } from "./subs.ts";
+
+// No new_match subscriptions here: matching is covered in match.test.ts.
+const NO_FIRE = { receipts: { fire: async () => {} }, trustedWorkers: [] };
 
 const hex = (n: number, len = 64) =>
   `0x${n.toString(16).padStart(len, "0")}` as Hex;
@@ -82,7 +86,12 @@ function setup(o: { watched?: boolean; slow?: Promise<void> } = {}) {
       return entities[params[0] as string] ?? null;
     },
   };
-  const d = createDispatch({ pub: pub as never, subs: () => subs, targets });
+  const d = createDispatch({
+    pub: pub as never,
+    subs: () => subs,
+    targets,
+    ...NO_FIRE,
+  });
   const run = async (e: Partial<EntityEvent>) => {
     d.onEvent({
       blockNumber: 10n,
@@ -206,6 +215,7 @@ test("settle() waits for every handler in the block; a failing one doesn't block
     } as never,
     subs: () => subs,
     targets: new Targets(),
+    ...NO_FIRE,
   });
   broken.onEvent({
     ...created(OTHER),
@@ -233,6 +243,7 @@ test("a replay burst is capped at 16 requests in flight, and every event still g
     pub: pub as never,
     subs: () => new SubsIndex(),
     targets: new Targets(),
+    ...NO_FIRE,
   });
   for (let i = 0; i < 50; i++)
     d.onEvent({
@@ -244,4 +255,49 @@ test("a replay burst is capped at 16 requests in flight, and every event still g
   await d.settle(10n);
   assert.equal(handled, 50);
   assert.equal(peak, 16);
+});
+
+test("a match's fire waits outside the limiter, and its block still settles only after it", async () => {
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r)); // worker B's delay_blocks wait
+  let fires = 0;
+  const subs = new SubsIndex();
+  subs.add({
+    ...WATCHER,
+    key: hex(2),
+    trigger: "new_match",
+    targetKey: undefined,
+    leadBlocks: undefined,
+    search: parseSearch({ eq: ["kind", { str: "x" }] }),
+  });
+  const d = createDispatch({
+    pub: {
+      request: async ({ params }: { params: [{ query: string }] }) =>
+        params[0].query.includes("'subscription'") ? 0 : 1, // everything matches
+    } as never,
+    subs: () => subs,
+    targets: new Targets(),
+    receipts: {
+      fire: async () => {
+        fires++;
+        await held;
+      },
+    },
+    trustedWorkers: [],
+  });
+  const event = (i: number, blockNumber: bigint) =>
+    d.onEvent({
+      ...created(hex(5000 + i)),
+      blockNumber,
+      transactionHash: hex(9),
+      logIndex: i,
+    } as EntityEvent);
+  for (let i = 0; i < 17; i++) event(i, 10n); // one more than the limiter's 16 slots
+  let settled = false;
+  const s = d.settle(10n).then(() => (settled = true));
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(fires, 17); // the 17th got a slot although 16 fires are still waiting
+  assert.equal(settled, false); // but the checkpoint can't pass an unrecorded match
+  release();
+  await s;
 });
