@@ -9,7 +9,7 @@ import type {
 import { bytes32, key, u64 } from "@arkiv-network/sdk/attr";
 import { ExpirationTime, jsonToPayload } from "@arkiv-network/sdk/utils";
 import type { Hex } from "viem";
-import { freeCount } from "../shared/arkiv.ts";
+import { freeCount, trustedFilter } from "../shared/arkiv.ts";
 import { PROJECT, type Event } from "../shared/schema.ts";
 import type { Sub } from "../shared/subscription.ts";
 import { triggerId } from "../shared/triggerId.ts";
@@ -72,9 +72,7 @@ export class Receipts {
     this.#pub = o.pub;
     this.#delay = BigInt(o.delayBlocks);
     this.#file = o.file;
-    if (o.trustedWorkers.length === 0)
-      throw new Error("Receipts needs at least one trusted worker");
-    this.#trusted = `(${o.trustedWorkers.map((a) => `$creator = addr(${a})`).join(" OR ")})`;
+    this.#trusted = trustedFilter(o.trustedWorkers);
   }
 
   get queued() {
@@ -232,6 +230,11 @@ export class Receipts {
   async #landed(id: Hex) {
     const q = `project = str('${PROJECT}') AND kind = str('receipt') AND trigger_id = bytes32(${id}) AND ${this.#trusted}`;
     return (await freeCount(this.#pub, q)) > 0;
+  }
+
+  // Restores today's count after a restart (T2.8), from the receipts already on chain.
+  seedDayCount(subKey: Hex, n: number) {
+    this.#dayCount.set(subKey, { day: utcDay(), n });
   }
 
   #overCap(sub: Sub) {

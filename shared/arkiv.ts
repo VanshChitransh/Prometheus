@@ -98,6 +98,13 @@ export function rpcCode(e: unknown): number {
   return hit?.code ?? hit?.status ?? -1;
 }
 
+// The $creator clause every receipt query needs: anyone can compute a trigger_id, so only receipts
+// from these wallets count (arkiv/schema.md, "TRUSTED").
+export function trustedFilter(workers: readonly Hex[]) {
+  if (workers.length === 0) throw new Error("no trusted workers");
+  return `(${workers.map((a) => `$creator = addr(${a})`).join(" OR ")})`;
+}
+
 // Free filtered count. The SDK's getEntityCount() sends no query (chain-wide total);
 // its getEntity()/query cost 100 units each (LLD §3.3).
 export const freeCount = (client: PublicArkivClient, query: string) =>

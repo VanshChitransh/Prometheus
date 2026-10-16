@@ -94,12 +94,13 @@ function unlink(map: Map<Hex, Set<Hex>>, k: Hex, id: Hex) {
   if (set?.size === 0) map.delete(k);
 }
 
-// A fresh index of every live, valid subscription; the hourly re-sync swaps it in whole. The paid
+// A fresh index of every live, valid subscription, plus the block the query saw (every page of a
+// cursor walk is pinned to it), so the hourly re-sync can tell "gone since" from "added since". The paid
 // query lists keys only; each entity is then a free raw read, decoded exactly as the web form does.
 // A failed read throws: starting with a partial set would silently drop subscriptions.
 export async function discoverAll(
   client: PublicArkivClient,
-): Promise<SubsIndex> {
+): Promise<{ subs: SubsIndex; block: bigint }> {
   const index = new SubsIndex();
   const reasons = new Map<string, number>();
   const reject = (reason: string) =>
@@ -110,6 +111,7 @@ export async function discoverAll(
     .where(eq("project", PROJECT), eq("kind", "subscription"))
     .limit(MAX_LIMIT)
     .fetch();
+  const block = page.blockNumber;
   for (;;) {
     const entities = await Promise.all(
       page.entities.map((e) => rawGetEntity(client, e.key)),
@@ -133,5 +135,5 @@ export async function discoverAll(
   console.log(
     `[subs] ${index.size} subscriptions, ${rejected} rejected${rejected ? ` (${why})` : ""}`,
   );
-  return index;
+  return { subs: index, block };
 }

@@ -7,6 +7,7 @@ import { createDispatch } from "./events.ts";
 import { ExpiryMonitor, Targets } from "./expiry.ts";
 import { startHeartbeat } from "./heartbeat.ts";
 import { Receipts } from "./receipts.ts";
+import { rebuildDayCounts, seedTargets, startResync } from "./startup.ts";
 import { startStream } from "./stream.ts";
 import { discoverAll } from "./subs.ts";
 import { Writer } from "./writer.ts";
@@ -31,15 +32,12 @@ let checkpoint =
   (await loadCheckpoint(CHECKPOINT)) ?? (await pub.getBlockNumber()) - 1_800n;
 let saving = Promise.resolve();
 
-// LLD §3.2 steps 2–3: discover subscriptions, then seed each distinct target (one free read each).
-// A target already gone isn't cached; T2.8's startup sequence handles that case.
-const subs = await discoverAll(pub);
+// LLD §3.2 steps 2–3: discover subscriptions, then seed each distinct target, including ones that
+// expired while we were down. `let`: the hourly re-sync swaps in a fresh index.
+let { subs } = await discoverAll(pub);
 const targets = new Targets();
-const watched = new Set(subs.all().flatMap((s) => s.targetKey ?? []));
-const live = await Promise.all([...watched].map((k) => targets.seed(pub, k)));
-console.log(
-  `[expiry] seeded ${targets.size} targets (${live.filter((ok) => !ok).length} already gone)`,
-);
+const head = await pub.getBlockNumber();
+await seedTargets(pub, subs, targets, head);
 
 // fire() is called by the expiry monitor and event dispatch (T2.5, T2.7).
 const receipts = new Receipts({
@@ -50,6 +48,8 @@ const receipts = new Receipts({
   trustedWorkers: cfg.trustedWorkers,
 });
 await receipts.resume(); // receipts a crash left unsent
+// LLD §3.2 step 4: today's counts, so a restart doesn't reset max_per_day.
+await rebuildDayCounts(pub, subs, receipts, head, cfg.trustedWorkers);
 const expiry = new ExpiryMonitor({ pub, targets, subs: () => subs, receipts });
 const dispatch = createDispatch({ pub, subs: () => subs, targets });
 
@@ -76,6 +76,13 @@ const stopStream = startStream({
 });
 
 const stopHeartbeat = await startHeartbeat(writer, pub, cfg, address);
+// LLD §3.2 step 6: re-discover and re-seed hourly (expired subscriptions emit no event).
+const stopResync = startResync({
+  pub,
+  subs: () => subs,
+  setSubs: (fresh) => (subs = fresh),
+  targets,
+});
 
 // Exiting mid-write is safe: the writer re-reads the nonce from the chain on the next start.
 for (const signal of ["SIGTERM", "SIGINT"] as const)
@@ -83,5 +90,6 @@ for (const signal of ["SIGTERM", "SIGINT"] as const)
     console.log(`[worker] ${signal}, stopping`);
     stopStream();
     stopHeartbeat();
+    stopResync();
     process.exit(0);
   });
