@@ -50,6 +50,12 @@ export class Targets {
     if (t) Object.assign(t, { expiresAt, gone: false });
   }
 
+  // Receipts pin the owner as last seen, so a transfer must reach the cache.
+  transfer(k: Hex, owner: Hex) {
+    const t = this.#m.get(lower(k));
+    if (t) t.owner = owner;
+  }
+
   markGone(k: Hex) {
     const t = this.#m.get(lower(k));
     if (t) t.gone = true;

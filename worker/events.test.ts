@@ -86,11 +86,23 @@ function setup(o: { watched?: boolean; slow?: Promise<void> } = {}) {
       return entities[params[0] as string] ?? null;
     },
   };
+  const fired: {
+    sub: Hex;
+    subject: Hex;
+    event: string;
+    block: bigint;
+    seen?: unknown;
+  }[] = [];
   const d = createDispatch({
     pub: pub as never,
     subs: () => subs,
     targets,
-    ...NO_FIRE,
+    receipts: {
+      fire: async (sub, subject, event, block, seen) => {
+        fired.push({ sub: sub.key, subject, event, block, seen });
+      },
+    },
+    trustedWorkers: [],
   });
   const run = async (e: Partial<EntityEvent>) => {
     d.onEvent({
@@ -101,7 +113,7 @@ function setup(o: { watched?: boolean; slow?: Promise<void> } = {}) {
     } as EntityEvent);
     await d.settle(10n);
   };
-  return { subs, targets, f, d, run };
+  return { subs, targets, f, d, run, fired };
 }
 const created = (entityKey: Hex, expiresAt = 4_000n) =>
   ({
@@ -175,17 +187,68 @@ test("EntityDeleted → off the schedule, and a deleted subscription is dropped"
   assert.equal(subs.size, 0);
 });
 
-test("EntityPatched and OwnershipTransferred change nothing yet (T2.10)", async () => {
-  const { subs, f, run } = setup();
+// T2.10: a `changed` subscription on TARGET next to WATCHER (an `expiring` one, which must stay quiet).
+function changeSetup() {
+  const s = setup();
+  s.subs.add({
+    ...WATCHER,
+    key: hex(3),
+    trigger: "changed",
+    leadBlocks: undefined,
+  });
+  s.targets.set(TARGET, {
+    expiresAt: 4_000n,
+    creator: OWNER,
+    owner: OWNER,
+    flags: { readonly: false, permissionlessExtension: false },
+  });
+  return s;
+}
+
+test("EntityPatched of a watched target → patched, at the log's block, for changed subs only", async () => {
+  const { fired, f, run } = changeSetup();
   await run({ type: "EntityPatched", entityKey: TARGET, owner: OWNER });
+  assert.deepEqual(fired, [
+    {
+      sub: hex(3),
+      subject: TARGET,
+      event: "patched",
+      block: 10n,
+      seen: { creator: OWNER, owner: OWNER },
+    },
+  ]);
+  assert.equal(f.counts + f.reads, 0); // no RPC
+});
+
+test("OwnershipTransferred → owner_changed, and the cache and receipt carry the new owner", async () => {
+  const { fired, targets, run } = changeSetup();
+  const NEW = hex(8, 40);
   await run({
     type: "OwnershipTransferred",
     entityKey: TARGET,
     previousOwner: OWNER,
-    newOwner: hex(8, 40),
+    newOwner: NEW,
   });
-  assert.equal(subs.size, 1);
-  assert.equal(f.counts + f.reads, 0);
+  assert.equal(targets.get(TARGET)?.owner, NEW);
+  assert.equal(fired.length, 1);
+  assert.equal(fired[0]!.event, "owner_changed");
+  assert.deepEqual(fired[0]!.seen, { creator: OWNER, owner: NEW });
+});
+
+test("EntityDeleted of a watched target → deleted with the cached owner, then off the cache", async () => {
+  const { fired, targets, run } = changeSetup();
+  await run({ type: "EntityDeleted", entityKey: TARGET, owner: OWNER });
+  assert.equal(fired.length, 1);
+  assert.equal(fired[0]!.event, "deleted");
+  assert.deepEqual(fired[0]!.seen, { creator: OWNER, owner: OWNER });
+  assert.equal(targets.get(TARGET), undefined);
+});
+
+test("a change to an unwatched entity fires nothing", async () => {
+  const { fired, run } = changeSetup();
+  await run({ type: "EntityPatched", entityKey: OTHER, owner: OWNER });
+  await run({ type: "EntityDeleted", entityKey: OTHER, owner: OWNER });
+  assert.equal(fired.length, 0);
 });
 
 test("settle() waits for every handler in the block; a failing one doesn't block it", async () => {

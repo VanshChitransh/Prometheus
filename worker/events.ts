@@ -1,6 +1,6 @@
 // The LLD §3.3 table: turns stream events into updates of the subscription index and the target
 // cache, and tells the entrypoint when a block is fully handled so the checkpoint can pass it.
-// Node only. The change hooks arrive with T2.10.
+// Node only.
 import type {
   EntityCreatedEvent,
   EntityEvent,
@@ -10,6 +10,7 @@ import type { Hex } from "viem";
 import { freeCount, rawGetEntity } from "../shared/arkiv.ts";
 import { PROJECT } from "../shared/schema.ts";
 import { decodeSubscription } from "../shared/subscription.ts";
+import { fireChanged } from "./change.ts";
 import type { Targets } from "./expiry.ts";
 import { matchCreated, type Later } from "./match.ts";
 import type { Receipts } from "./receipts.ts";
@@ -90,6 +91,23 @@ export function createDispatch(o: {
     console.log(`[events] subscription ${key} added (${d.sub.trigger})`);
   }
 
+  // The trigger block is the event's block. Seen is read now, before any cache update that follows.
+  function changed(
+    k: Hex,
+    event: "patched" | "owner_changed" | "deleted",
+    block: bigint,
+  ) {
+    const t = targets.get(k);
+    return fireChanged({
+      subs: subs().forTarget(k),
+      subject: k,
+      event,
+      block,
+      seen: t && { creator: t.creator, owner: t.owner },
+      receipts,
+    });
+  }
+
   async function handle(e: EntityEvent): Promise<Later | void> {
     switch (e.type) {
       case "EntityCreated":
@@ -100,11 +118,19 @@ export function createDispatch(o: {
         if (sub) subs().add({ ...sub, expiresAt: e.expiresAt }); // the subscription was renewed
         return;
       }
-      case "EntityDeleted":
+      case "EntityPatched":
+        return changed(e.entityKey, "patched", e.blockNumber);
+      case "OwnershipTransferred":
+        // The SDK decodes topics[2] = previous, topics[3] = new; the receipt pins the new owner.
+        targets.transfer(e.entityKey, e.newOwner);
+        return changed(e.entityKey, "owner_changed", e.blockNumber);
+      case "EntityDeleted": {
+        // Before the cache entry goes: the receipt needs the creator and owner it holds.
+        const later = changed(e.entityKey, "deleted", e.blockNumber);
         targets.delete(e.entityKey);
         subs().remove(e.entityKey);
-        return;
-      // EntityPatched, OwnershipTransferred: the `changed` triggers (T2.10).
+        return later;
+      }
     }
   }
 
