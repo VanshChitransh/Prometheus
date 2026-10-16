@@ -95,8 +95,9 @@ export type RawEntity = {
   owner: Hex;
   expiresAt: bigint;
   flags: { readonly: boolean; permissionlessExtension: boolean };
-  // u64 → bigint; str, key, addr and bytes32 stay strings.
-  attributes: Record<string, string | bigint>;
+  // u64 → bigint; i32 → number; bool → boolean; everything else (str, key, addr, u256…) a string.
+  attributes: Record<string, string | number | boolean | bigint>;
+  payload?: Hex;
 };
 
 // Free read by key. null = no live entity (never created, deleted or expired), measured 16 Oct.
@@ -122,8 +123,11 @@ export async function rawGetEntity(
     attributes: Object.fromEntries(
       (e.attributes ?? []).map((a) => [
         a.name,
-        a.type === "u64" ? BigInt(a.value as string) : (a.value as string),
+        a.type === "u64"
+          ? BigInt(a.value as string)
+          : (a.value as string | number | boolean),
       ]),
     ),
+    payload: e.payload,
   };
 }
