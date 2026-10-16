@@ -4,6 +4,7 @@ import { publicHttp, publicWs, walletClient } from "../shared/arkiv.ts";
 import { loadConfig } from "../shared/config.ts";
 import { loadCheckpoint, saveCheckpoint } from "../shared/replay.ts";
 import { startHeartbeat } from "./heartbeat.ts";
+import { Receipts } from "./receipts.ts";
 import { startStream } from "./stream.ts";
 import { discoverAll } from "./subs.ts";
 import { Writer } from "./writer.ts";
@@ -26,6 +27,15 @@ let saving = Promise.resolve();
 // LLD §3.2 step 2. The index feeds the expiry monitor and event dispatch (T2.5, T2.7).
 await discoverAll(pub);
 
+// fire() is called by the expiry monitor and event dispatch (T2.5, T2.7).
+const receipts = new Receipts({
+  writer,
+  pub,
+  delayBlocks: cfg.delayBlocks,
+  file: `state/pending-${address}.json`,
+});
+await receipts.resume(); // receipts a crash left unsent
+
 const stopStream = startStream({
   ws: publicWs(cfg.ws),
   http: pub,
@@ -36,6 +46,7 @@ const stopStream = startStream({
   // ponytail: head − 1 counts as fully handled (a block's logs can land just after its head);
   // T2.7 advances the checkpoint only once a block's events are processed.
   onHead: (head) => {
+    receipts.onHead(head);
     checkpoint = head - 1n;
     const block = checkpoint;
     // Chained, so two saves never race on the same temp file.
