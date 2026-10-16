@@ -31,6 +31,9 @@ const lower = (k: Hex) => k.toLowerCase() as Hex;
 
 export class Targets {
   readonly #m = new Map<Hex, Target>();
+  // Bumped by every change to a key, so a read that started before the change knows it's stale.
+  // ponytail: one small number per target ever seen, never pruned; fine at thousands.
+  readonly #version = new Map<Hex, number>();
 
   get size() {
     return this.#m.size;
@@ -40,28 +43,35 @@ export class Targets {
     return this.#m.get(lower(k));
   }
 
+  #touch(k: Hex) {
+    this.#version.set(k, (this.#version.get(k) ?? 0) + 1);
+    return this.#m.get(k);
+  }
+
   set(k: Hex, t: Omit<Target, "gone">) {
+    this.#touch(lower(k));
     this.#m.set(lower(k), { ...t, gone: false });
   }
 
   // An extension also proves the target is alive.
   extend(k: Hex, expiresAt: bigint) {
-    const t = this.#m.get(lower(k));
+    const t = this.#touch(lower(k));
     if (t) Object.assign(t, { expiresAt, gone: false });
   }
 
   // Receipts pin the owner as last seen, so a transfer must reach the cache.
   transfer(k: Hex, owner: Hex) {
-    const t = this.#m.get(lower(k));
+    const t = this.#touch(lower(k));
     if (t) t.owner = owner;
   }
 
   markGone(k: Hex) {
-    const t = this.#m.get(lower(k));
+    const t = this.#touch(lower(k));
     if (t) t.gone = true;
   }
 
   delete(k: Hex) {
+    this.#touch(lower(k));
     this.#m.delete(lower(k));
   }
 
@@ -69,9 +79,16 @@ export class Targets {
     return this.#m.entries();
   }
 
-  // One free read. Caches a live target; false = it's gone (never existed, deleted or expired).
+  // One free read. Caches a live target; false = it's gone (never existed, deleted or expired). If an
+  // event changed the key while the read was in flight, the event is newer: keep what it wrote.
   async seed(pub: PublicArkivClient, k: Hex) {
+    const key = lower(k);
+    const before = this.#version.get(key);
     const e = await rawGetEntity(pub, k);
+    if (this.#version.get(key) !== before) {
+      const now = this.#m.get(key);
+      return !!now && !now.gone;
+    }
     if (!e) return false;
     this.set(k, {
       expiresAt: e.expiresAt,

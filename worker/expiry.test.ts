@@ -148,3 +148,33 @@ test("a keep subscription fires `keep` at exp − lead, and re-arms after an ext
   assert.deepEqual(events(dueTriggers(1_000n, targets, subs)), []);
   assert.deepEqual(events(dueTriggers(1_120n, targets, subs)), ["keep@1120"]);
 });
+
+test("an event that lands during a slow seed read wins over the read", async () => {
+  const targets = new Targets();
+  targets.set(TARGET, {
+    expiresAt: 1_000n,
+    creator: OWNER,
+    owner: OWNER,
+    flags: { readonly: false, permissionlessExtension: false },
+  });
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const pub = {
+    request: async () => (
+      await gate,
+      {
+        key: TARGET,
+        creator: OWNER,
+        owner: OWNER,
+        createdAt: toHex(1),
+        expiresAt: toHex(1_000),
+        attributes: [],
+      }
+    ),
+  };
+  const seeding = targets.seed(pub as never, TARGET); // reads the old expiry...
+  targets.extend(TARGET, 2_000n); // ...while an ExpiryExtended event lands
+  release();
+  assert.equal(await seeding, true);
+  assert.equal(targets.get(TARGET)?.expiresAt, 2_000n); // the newer event stays
+});

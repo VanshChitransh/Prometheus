@@ -14,6 +14,7 @@ import { replayEntityRanges, SeenLogs } from "../shared/replay.ts";
 const ARKIV_ADDRESS = "0x4400000000000000000000000000000000000044";
 const STALL_MS = 15_000; // ~7 missed 2 s blocks
 const RETRY_MS = 5_000;
+const HTTP_CATCHUP_TRIES = 10;
 
 export type StreamOptions = {
   ws: Pick<
@@ -37,7 +38,8 @@ export function startStream({
   const seen = new SeenLogs();
   let generation = 0; // bumped by every connect and by stop; an older catch-up seeing a newer one quits
   let buffer: EntityEvent[] | null = null; // null = live: events pass straight through
-  let lastHead = 0n;
+  let lastHead = 0n; // this generation's newest head
+  let firstHead: PromiseWithResolvers<bigint> | undefined;
   let unwatch: (() => void)[] = [];
   let stallTimer: NodeJS.Timeout | undefined;
   let retryTimer: NodeJS.Timeout | undefined;
@@ -71,6 +73,7 @@ export function startStream({
   };
 
   const disconnect = () => {
+    firstHead?.resolve(0n); // a connect still waiting for its first head is superseded: let it exit
     for (const u of unwatch) u();
     unwatch = [];
     clearTimeout(stallTimer);
@@ -82,6 +85,11 @@ export function startStream({
     disconnect();
     const box: EntityEvent[] = [];
     buffer = box;
+    // Per generation: heads seen by a superseded subscription must not move the checkpoint past
+    // what this generation replays (audit M8).
+    lastHead = 0n;
+    const first = Promise.withResolvers<bigint>();
+    firstHead = first;
     try {
       // Subscribe first, then replay: a gap loses data, while an overlap is removed by `seen` (LLD §3.2).
       unwatch = [
@@ -94,6 +102,7 @@ export function startStream({
           onBlockNumber: (n) => {
             armStall();
             if (n > lastHead) lastHead = n;
+            first.resolve(n);
             if (!buffer) onHead(n);
           },
           onError: (e) => catchUpSoon("heads", e),
@@ -101,8 +110,19 @@ export function startStream({
       ];
       armStall();
 
+      // viem sends eth_subscribe asynchronously, so "subscribed" isn't true yet when the calls above
+      // return (audit H5). A head from this generation proves the socket's subscriptions are live
+      // (logs subscribe before newHeads), so replay at least up to it: nothing in between is lost.
+      const live = await first.promise;
+      if (gen !== generation) return;
       const from = checkpoint() + 1n;
-      const head = await http.getBlockNumber();
+      let head = await http.getBlockNumber();
+      for (let i = 0; head < live && i < HTTP_CATCHUP_TRIES; i++) {
+        await new Promise((r) => setTimeout(r, 500)); // the HTTP node can trail the WS node briefly
+        head = await http.getBlockNumber();
+      }
+      if (head < live)
+        throw new Error(`HTTP head ${head} still behind the socket's ${live}`);
       await replayEntityRanges(
         from,
         head,

@@ -333,3 +333,14 @@ test("a keep outcome with retry writes its receipt but stays unfired", async () 
   await r.fire(SUB, TARGET, "keep", 970n); // offered again, now funded
   assert.equal(calls, 2);
 });
+
+test("100 concurrent fires on a sub capped at 20 queue exactly 20 (H4)", async () => {
+  const { r } = await fake();
+  r.onHead(1_000n);
+  await Promise.all(
+    Array.from({ length: 100 }, (_, i) =>
+      r.fire(SUB, TARGET, "matched", BigInt(i + 1)),
+    ),
+  );
+  assert.equal(r.queued, 20);
+});

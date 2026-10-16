@@ -450,3 +450,94 @@ test("a persistent failure is dropped after the attempt cap, so the worker can't
   await d.settle(10n);
   assert.equal(attempts, 10);
 });
+
+test("a replayed created + extended for one target, arriving together, end at the extension (H3)", async () => {
+  const subs = new SubsIndex();
+  subs.add(WATCHER);
+  const targets = new Targets();
+  let release!: () => void;
+  const slow = new Promise<void>((r) => (release = r)); // the "is it a subscription?" count is slow
+  const d = createDispatch({
+    ...NO_FIRE,
+    pub: { request: async () => (await slow, 0) } as never,
+    subs: () => subs,
+    targets,
+  });
+  const ev = (e: Partial<EntityEvent>, i: number) =>
+    ({
+      blockNumber: 10n,
+      transactionHash: hex(9),
+      logIndex: i,
+      ...e,
+    }) as EntityEvent;
+  d.onEvent(ev(created(TARGET, 4_000n), 0));
+  d.onEvent(
+    ev(
+      {
+        type: "ExpiryExtended",
+        entityKey: TARGET,
+        owner: OWNER,
+        expiresAt: 6_000n,
+      },
+      1,
+    ),
+  );
+  release();
+  await d.settle(10n);
+  assert.equal(targets.get(TARGET)?.expiresAt, 6_000n); // not reset to the creation-time 4,000
+});
+
+test("a replayed created + deleted leaves no cache entry, so no false `expired` (H3)", async () => {
+  const subs = new SubsIndex();
+  subs.add(WATCHER);
+  const targets = new Targets();
+  const d = createDispatch({
+    ...NO_FIRE,
+    pub: { request: async () => 0 } as never,
+    subs: () => subs,
+    targets,
+  });
+  d.onEvent({
+    ...created(TARGET),
+    blockNumber: 10n,
+    transactionHash: hex(9),
+    logIndex: 0,
+  } as EntityEvent);
+  d.onEvent({
+    type: "EntityDeleted",
+    entityKey: TARGET,
+    owner: OWNER,
+    blockNumber: 10n,
+    transactionHash: hex(9),
+    logIndex: 1,
+  } as EntityEvent);
+  await d.settle(10n);
+  assert.equal(targets.get(TARGET), undefined);
+});
+
+test("a replayed created never resurrects a target already cached as gone (H3)", async () => {
+  const subs = new SubsIndex();
+  subs.add(WATCHER);
+  const targets = new Targets();
+  targets.set(TARGET, {
+    expiresAt: 3_000n,
+    creator: OWNER,
+    owner: OWNER,
+    flags: { readonly: false, permissionlessExtension: false },
+  });
+  targets.markGone(TARGET); // seeded at startup: expired while we were down
+  const d = createDispatch({
+    ...NO_FIRE,
+    pub: { request: async () => 0 } as never,
+    subs: () => subs,
+    targets,
+  });
+  await (d.onEvent({
+    ...created(TARGET),
+    blockNumber: 10n,
+    transactionHash: hex(9),
+    logIndex: 0,
+  } as EntityEvent),
+  d.settle(10n));
+  assert.equal(targets.get(TARGET)?.gone, true);
+});

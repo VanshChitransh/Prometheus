@@ -187,3 +187,12 @@ test("rebuildDayCounts seeds today's trusted receipts per subscription", async (
   assert.match(q, new RegExp(`\\$creator = addr\\(${TRUSTED}\\)`)); // forged receipts can't eat the cap
   assert.match(q, /trigger_block >= u64\(\d+\)/);
 });
+
+test("mergeResync doesn't resurrect a subscription deleted live while discovery ran", () => {
+  const old = index(sub(10), sub(20));
+  const fresh = index(sub(10), sub(20)); // discovery read 20 just before its deletion
+  old.remove(sub(20).key); // the live EntityDeleted
+  const r = mergeResync(old, fresh, 40n);
+  assert.equal(r.subs.get(sub(20).key), undefined);
+  assert.equal(r.subs.removed.size, 0); // the new index starts with a clean slate
+});

@@ -14,6 +14,7 @@ import { PROJECT, type Event } from "../shared/schema.ts";
 import type { Sub } from "../shared/subscription.ts";
 import { triggerId } from "../shared/triggerId.ts";
 import type { Keeper } from "./keeper.ts";
+import { inBatches } from "./limit.ts";
 import type { Writer } from "./writer.ts";
 
 const FLUSH_AT = 10; // receipts
@@ -118,11 +119,15 @@ export class Receipts {
     if (this.#inFlight.has(id) || (event !== "keep" && this.#overCap(sub)))
       return "skipped";
     // Claim before any await, or every call during B's 15-block wait would pass the checks above.
+    // The day slot too: counted only after the awaits, 100 concurrent fires all passed the cap (H4).
     this.#inFlight.add(id);
+    const counted = event !== "keep";
+    if (counted) this.#countToday(sub.key, 1);
     try {
       while (this.#head < triggerBlock + this.#delay) await this.#tick.promise;
       if (await this.#landed(id)) {
-        this.#fired.add(id); // the other worker already acted
+        this.#fired.add(id); // the other worker already acted (its receipt counts on restart)
+        if (counted) this.#countToday(sub.key, -1);
         return "done";
       }
       let receipt:
@@ -175,12 +180,12 @@ export class Receipts {
         });
         void this.#save();
       }
-      if (event !== "keep") this.#countToday(sub.key);
       // Only on success: marking it in `finally` would make one transient RPC error lose the alert.
       this.#fired.add(id);
       return "done";
     } catch (e) {
       console.error(`[receipts] ${event} for ${sub.key} failed:`, e);
+      if (counted) this.#countToday(sub.key, -1); // give the slot back: it's tried again
       return "failed";
     } finally {
       this.#inFlight.delete(id);
@@ -220,7 +225,11 @@ export class Receipts {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") return;
       throw e; // a corrupt file must be looked at, not silently dropped with its receipts
     }
-    const landed = await Promise.all(saved.map((r) => this.#landed(r.id)));
+    // Batched (an outage can leave thousands), and a failed check keeps the receipt: a possible
+    // duplicate is better than a lost alert, or a crash loop at startup.
+    const landed = await inBatches(saved, (r) =>
+      this.#landed(r.id).catch(() => false),
+    );
     this.#pending = saved.filter((_, i) => !landed[i]);
     for (const r of saved) this.#fired.add(r.id);
     console.log(
@@ -288,16 +297,8 @@ export class Receipts {
     }
   }
 
-  // Free counts for many receipts, 16 at a time (the measured safe concurrency).
-  async #landedAll(rs: Receipt[]) {
-    const out: boolean[] = [];
-    for (let i = 0; i < rs.length; i += 16)
-      out.push(
-        ...(await Promise.all(
-          rs.slice(i, i + 16).map((r) => this.#landed(r.id)),
-        )),
-      );
-    return out;
+  #landedAll(rs: Receipt[]) {
+    return inBatches(rs, (r) => this.#landed(r.id));
   }
 
   // The file mirrors the outbox (sending + pending). Writes are chained so two never race on the
@@ -339,10 +340,11 @@ export class Receipts {
     return c?.day === utcDay() && c.n >= sub.maxPerDay;
   }
 
-  #countToday(subKey: Hex) {
+  #countToday(subKey: Hex, delta: 1 | -1) {
     const day = utcDay();
     const c = this.#dayCount.get(subKey);
-    this.#dayCount.set(subKey, { day, n: c?.day === day ? c.n + 1 : 1 });
+    const n = (c?.day === day ? c.n : 0) + delta;
+    this.#dayCount.set(subKey, { day, n: Math.max(0, n) });
   }
 }
 

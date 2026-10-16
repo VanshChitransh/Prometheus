@@ -24,21 +24,33 @@ export async function replayEntityRanges<L>(
   to: bigint,
   getLogs: (from: bigint, to: bigint) => Promise<L[]>,
   onLog: (log: L) => unknown,
+  // A transient error retries the same chunk (1 s, 2 s, 4 s), not the whole replay: restarting an
+  // hour-long replay from the checkpoint on every 429 might never finish (audit). Tests shrink it.
+  { retries = 3, retryMs = 1_000 } = {},
 ): Promise<void> {
   let span = MAX_SPAN;
-  for (let cursor = from; cursor <= to;) {
+  for (let cursor = from, failures = 0; cursor <= to;) {
     const end = cursor + span - 1n < to ? cursor + span - 1n : to;
     let logs: L[];
     try {
       logs = await getLogs(cursor, end);
     } catch (e) {
-      // Halve and retry the same cursor; at span 1 there is nothing left to shrink, so rethrow.
-      if (isLogCapacityError(e) && span > 1n) {
-        span = smallerLogSpan(span);
-        continue;
+      if (isLogCapacityError(e)) {
+        // Halve and retry the same cursor; at span 1 there is nothing left to shrink.
+        if (span > 1n) {
+          span = smallerLogSpan(span);
+          continue;
+        }
+        throw new Error(
+          `block ${cursor} alone exceeds the node's log capacity`,
+          { cause: e },
+        );
       }
-      throw e;
+      if (failures >= retries) throw e;
+      await new Promise((r) => setTimeout(r, retryMs * 2 ** failures++));
+      continue;
     }
+    failures = 0;
     for (const log of logs) await onLog(log);
     cursor = end + 1n;
   }
