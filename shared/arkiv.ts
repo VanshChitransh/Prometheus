@@ -72,16 +72,22 @@ async function call<T>(
   try {
     return await request({ method, params });
   } catch (e) {
-    const hit =
-      e instanceof BaseError
-        ? (e.walk(
-            (x) =>
-              typeof (x as { code?: unknown }).code === "number" ||
-              typeof (x as { status?: unknown }).status === "number",
-          ) as { code?: number; status?: number } | null)
-        : null;
-    throw new RpcError(method, hit?.code ?? hit?.status ?? -1, { cause: e });
+    throw new RpcError(method, rpcCode(e), { cause: e });
   }
+}
+
+// The JSON-RPC code or HTTP status buried in any viem error chain (or an RpcError); -1 if none.
+export function rpcCode(e: unknown): number {
+  if (e instanceof RpcError) return e.code;
+  const hit =
+    e instanceof BaseError
+      ? (e.walk(
+          (x) =>
+            typeof (x as { code?: unknown }).code === "number" ||
+            typeof (x as { status?: unknown }).status === "number",
+        ) as { code?: number; status?: number } | null)
+      : null;
+  return hit?.code ?? hit?.status ?? -1;
 }
 
 // Free filtered count. The SDK's getEntityCount() sends no query (chain-wide total);
