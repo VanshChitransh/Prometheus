@@ -6,11 +6,11 @@ const KEY = "0x" + "a".repeat(64);
 const base = {
   ARKIV_HTTP: "https://rpc.example",
   ARKIV_WS: "wss://rpc.example",
+  TRUSTED_WORKERS: `0x${"1".repeat(40)}, 0x${"2".repeat(40)}`,
 };
 const worker = { ...base, WORKER_PRIVATE_KEY: KEY, WORKER_DELAY_BLOCKS: "15" };
 const relay = {
   ...base,
-  TRUSTED_WORKERS: `0x${"1".repeat(40)}, 0x${"2".repeat(40)}`,
   SPONSOR_PRIVATE_KEY: KEY,
   TELEGRAM_BOT_TOKEN: "123:abc-DEF_9",
 };
@@ -20,6 +20,7 @@ test("valid worker env returns parsed, typed values", () => {
   assert.equal(c.delayBlocks, 15);
   assert.equal(c.privateKey, KEY);
   assert.equal(c.accessKey, undefined);
+  assert.equal(c.trustedWorkers.length, 2); // workers trust the same wallets as the relay
 });
 
 test("valid relay env needs no worker variables", () => {

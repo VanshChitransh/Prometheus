@@ -136,20 +136,21 @@ erDiagram
 
 "Free" means the call returns no `arkiv-cost` header (measured 16 Oct, see [friction.md](friction.md)). `arkiv_query` costs 100 units, about 1% of a key's quota, so paid queries are kept off every hot path.
 
-| #   | Purpose                                       | Who              | Call                          | Query                                                                                                                           |
-| --- | --------------------------------------------- | ---------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Discover subscriptions                        | worker           | `arkiv_query`, paged (paid)   | `project = str('prometheus') AND kind = str('subscription')`                                                                    |
-| 2   | Has anyone already fired this trigger?        | worker           | `arkiv_getEntityCount` (free) | `project = str('prometheus') AND kind = str('receipt') AND trigger_id = bytes32(<id>)`                                          |
-| 3   | Today's alerts for a subscription (daily cap) | worker           | `arkiv_getEntityCount` (free) | `project = str('prometheus') AND kind = str('receipt') AND subscription = key(<sub>) AND trigger_block >= u64(<dayStartBlock>)` |
-| 4   | Receipts for one subscription                 | web `#/s/:key`   | `arkiv_query` (paid)          | `project = str('prometheus') AND kind = str('receipt') AND subscription = key(<sub>) AND TRUSTED`                               |
-| 5   | Coverage (last 24 h)                          | web `#/coverage` | `arkiv_query` (paid)          | `project = str('prometheus') AND kind = str('receipt') AND trigger_block >= u64(<head − 43200>) AND TRUSTED`                    |
-| 6   | My subscriptions                              | web `#/mine`     | `arkiv_query` (paid)          | `project = str('prometheus') AND kind = str('subscription') AND $creator = addr(<user>)`                                        |
-| 7   | Live workers                                  | relay, web       | `arkiv_getEntityCount` (free) | `project = str('prometheus') AND kind = str('worker') AND TRUSTED`                                                              |
+| #   | Purpose                                       | Who              | Call                          | Query                                                                                                                                       |
+| --- | --------------------------------------------- | ---------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Discover subscriptions                        | worker           | `arkiv_query`, paged (paid)   | `project = str('prometheus') AND kind = str('subscription')`                                                                                |
+| 2   | Has a trusted worker fired this trigger?      | worker           | `arkiv_getEntityCount` (free) | `project = str('prometheus') AND kind = str('receipt') AND trigger_id = bytes32(<id>) AND TRUSTED`                                          |
+| 3   | Today's alerts for a subscription (daily cap) | worker           | `arkiv_getEntityCount` (free) | `project = str('prometheus') AND kind = str('receipt') AND subscription = key(<sub>) AND trigger_block >= u64(<dayStartBlock>) AND TRUSTED` |
+| 4   | Receipts for one subscription                 | web `#/s/:key`   | `arkiv_query` (paid)          | `project = str('prometheus') AND kind = str('receipt') AND subscription = key(<sub>) AND TRUSTED`                                           |
+| 5   | Coverage (last 24 h)                          | web `#/coverage` | `arkiv_query` (paid)          | `project = str('prometheus') AND kind = str('receipt') AND trigger_block >= u64(<head − 43200>) AND TRUSTED`                                |
+| 6   | My subscriptions                              | web `#/mine`     | `arkiv_query` (paid)          | `project = str('prometheus') AND kind = str('subscription') AND $creator = addr(<user>)`                                                    |
+| 7   | Live workers                                  | relay, web       | `arkiv_getEntityCount` (free) | `project = str('prometheus') AND kind = str('worker') AND TRUSTED`                                                                          |
 
 Notes:
 
 - **#1** runs at startup and once an hour, not per block.
-- **#2** is why `trigger_id` is deterministic: "did anyone already do this?" becomes one free count. If A and B race, two receipts share an id; the relay delivers once.
+- **#2** is why `trigger_id` is deterministic: "did a worker already do this?" becomes one free count. If A and B race, two receipts share an id; the relay delivers once.
+- **#2 and #3 must carry `TRUSTED`.** Anyone can compute a `trigger_id` from public data, so without the `$creator` filter a forged receipt from any wallet would make both workers skip the real alert (or eat a subscription's daily cap).
 - **#3** uses `dayStartBlock = head − ⌊(now − UTC midnight) / 2 s⌋` (2-second blocks).
 - **#4–#6** run once per page load, never on a timer, because the web app has no access key and shares the anonymous budget.
 - Reading one entity by key (a receipt from an event, a target's expiry) uses the free raw `arkiv_getEntity [key]`, **not** the SDK's `getEntity()`, which is a paid `arkiv_query`.

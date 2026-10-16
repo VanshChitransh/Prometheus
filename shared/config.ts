@@ -3,10 +3,15 @@
 
 type Hex = `0x${string}`;
 
-type Base = { http: string; ws: string; accessKey?: string };
+// trustedWorkers: both roles trust only receipts these wallets created, never a lookalike.
+type Base = {
+  http: string;
+  ws: string;
+  accessKey?: string;
+  trustedWorkers: Hex[];
+};
 export type WorkerConfig = Base & { privateKey: Hex; delayBlocks: number };
 export type RelayConfig = Base & {
-  trustedWorkers: Hex[];
   sponsorKey: Hex;
   telegramToken: string;
 };
@@ -33,11 +38,17 @@ export function loadConfig<R extends Role>(
   const url = (protocol: string) => (v: string) =>
     URL.canParse(v) && new URL(v).protocol === protocol;
 
+  const trusted = read(
+    "TRUSTED_WORKERS",
+    (v) => v.split(",").every((a) => ADDRESS.test(a.trim())),
+    "comma-separated 0x addresses",
+  );
   const base: Base = {
     http: read("ARKIV_HTTP", url("https:"), "an https:// URL")!,
     ws: read("ARKIV_WS", url("wss:"), "a wss:// URL")!,
     // Optional: without it, calls use the anonymous quota.
     accessKey: env.ARKIV_ACCESS_KEY?.trim() || undefined,
+    trustedWorkers: (trusted?.split(",").map((a) => a.trim()) ?? []) as Hex[],
   };
 
   let config;
@@ -57,14 +68,8 @@ export function loadConfig<R extends Role>(
       delayBlocks: Number(delay),
     };
   } else {
-    const trusted = read(
-      "TRUSTED_WORKERS",
-      (v) => v.split(",").every((a) => ADDRESS.test(a.trim())),
-      "comma-separated 0x addresses",
-    );
     config = {
       ...base,
-      trustedWorkers: (trusted?.split(",").map((a) => a.trim()) ?? []) as Hex[],
       sponsorKey: read(
         "SPONSOR_PRIVATE_KEY",
         (v) => PRIVATE_KEY.test(v),
