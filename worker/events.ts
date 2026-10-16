@@ -13,6 +13,8 @@ import { decodeSubscription } from "../shared/subscription.ts";
 import type { Targets } from "./expiry.ts";
 import type { SubsIndex } from "./subs.ts";
 
+const MAX_IN_FLIGHT = 16;
+
 export function createDispatch(o: {
   pub: PublicArkivClient;
   subs: () => SubsIndex; // a getter: the hourly re-sync swaps in a fresh index
@@ -20,6 +22,22 @@ export function createDispatch(o: {
 }) {
   const { pub, subs, targets } = o;
   const blocks = new Map<bigint, Promise<void>[]>();
+  // A catch-up replays thousands of events at once; unbounded, each EntityCreated's free count hit
+  // the node together and ~100 timed out (1,697-block replay, 16 Oct). Measured 17 Oct: 16 in flight
+  // drains ~49 counts/s with no errors, so an hour of catch-up (~3,800 events) takes ~80 s.
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  async function limited(fn: () => Promise<void>) {
+    while (active >= MAX_IN_FLIGHT)
+      await new Promise<void>((r) => waiting.push(r));
+    active++;
+    try {
+      await fn();
+    } finally {
+      active--;
+      waiting.shift()?.();
+    }
+  }
 
   async function created(e: EntityCreatedEvent) {
     // Free count first: ~1 event/s chain-wide, and almost none are our subscriptions. The node
@@ -80,12 +98,13 @@ export function createDispatch(o: {
   }
 
   return {
-    // A block's events run concurrently (LLD §3.3); each is filed under its block for settle().
+    // A block's events run concurrently (LLD §3.3), at most 16 at a time across blocks; each is filed
+    // under its block for settle().
     onEvent(e: EntityEvent) {
       // ponytail: a failed handler (e.g. an RPC timeout) is logged and the block still counts as
       // handled, so one bad call can't freeze the checkpoint; the hourly re-sync (T2.8) repairs
       // whatever it missed. Retry here if an hour of staleness ever matters.
-      const done = handle(e).catch((err) =>
+      const done = limited(() => handle(e)).catch((err) =>
         console.error(`[events] ${e.type} ${e.entityKey} failed:`, err),
       );
       const list = blocks.get(e.blockNumber);
