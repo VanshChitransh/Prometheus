@@ -1,0 +1,211 @@
+import { mock, test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Hex } from "viem";
+import type { Sub } from "../shared/subscription.ts";
+import { triggerId } from "../shared/triggerId.ts";
+import { Receipts } from "./receipts.ts";
+
+const hex = (n: number) => `0x${n.toString(16).padStart(64, "0")}` as Hex;
+const TARGET = hex(1000);
+const SUB: Sub = {
+  key: hex(1),
+  creator: `0x${"1".repeat(40)}`,
+  createdAt: 1n,
+  expiresAt: 900_000n,
+  publicMonitor: false,
+  trigger: "expiring",
+  label: "test",
+  maxPerDay: 20,
+  targetKey: TARGET,
+  leadBlocks: 30n,
+};
+const idFor = (triggerBlock: bigint) =>
+  triggerId({
+    subscription: SUB.key,
+    subject: TARGET,
+    event: "warned",
+    triggerBlock,
+  });
+
+// Polls (up to 2 s) until `cond` holds: fire(), flushes and the real file writes settle over many turns.
+async function until(cond: () => boolean, what: string) {
+  for (let i = 0; i < 400; i++) {
+    if (cond()) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  assert.fail(`timed out waiting for ${what}`);
+}
+
+// A fake chain: `landed` holds trigger ids that already have a receipt. The writer records batches;
+// `next` makes the next batch throw ("throw") or be refused ("refuse").
+async function fake(delayBlocks = 0) {
+  const file = join(await mkdtemp(join(tmpdir(), "receipts-")), "pending.json");
+  const f = {
+    file,
+    landed: new Set<Hex>(),
+    counts: 0,
+    failCount: false,
+    batches: [] as Hex[][],
+    fileDuringSend: "",
+    next: undefined as "throw" | "refuse" | undefined,
+  };
+  const pub = {
+    request: async ({ params }: { params: [{ query: string }] }) => {
+      f.counts++;
+      if (f.failCount) {
+        f.failCount = false;
+        throw new Error("rpc down");
+      }
+      const id = params[0].query.match(/bytes32\((0x[0-9a-f]+)\)/)![1] as Hex;
+      return f.landed.has(id) ? 1 : 0;
+    },
+  };
+  const writer = {
+    batch: async (p: {
+      creates: { attributes: Record<string, unknown> }[];
+    }) => {
+      f.fileDuringSend = await readFile(file, "utf8");
+      const outcome = f.next;
+      f.next = undefined;
+      if (outcome === "throw") throw new Error("network");
+      if (outcome === "refuse") return { ok: false, reason: "bad receipt" };
+      // The SDK's bytes32() value: { value: 0x… } (any shape works; we only count batches).
+      f.batches.push(
+        p.creates.map((c) => JSON.stringify(c.attributes.trigger_id) as Hex),
+      );
+      return { ok: true, value: {} };
+    },
+  };
+  const r = new Receipts({
+    writer: writer as never,
+    pub: pub as never,
+    delayBlocks,
+    file,
+  });
+  return { f, r };
+}
+
+test("20 fire() calls for one trigger while B waits → exactly 1 receipt queued", async () => {
+  const { f, r } = await fake(15);
+  r.onHead(100n);
+  for (let i = 0; i < 20; i++) void r.fire(SUB, TARGET, "warned", 100n);
+  r.onHead(114n);
+  await until(() => true, "a turn");
+  assert.equal(r.queued, 0); // B still waiting
+  assert.equal(f.counts, 0);
+  r.onHead(115n);
+  await until(() => r.queued === 1, "one receipt");
+  assert.equal(f.counts, 1); // one "already done?" check, not 20
+});
+
+test("A queues at once; B skips at +15 when A's receipt is already on chain", async () => {
+  const a = await fake(0);
+  a.r.onHead(100n);
+  await a.r.fire(SUB, TARGET, "warned", 100n);
+  assert.equal(a.r.queued, 1);
+
+  const b = await fake(15);
+  b.f.landed.add(idFor(100n));
+  b.r.onHead(100n);
+  const done = b.r.fire(SUB, TARGET, "warned", 100n);
+  b.r.onHead(115n);
+  await done;
+  assert.equal(b.r.queued, 0);
+  await b.r.fire(SUB, TARGET, "warned", 100n); // remembered as done: no second check
+  assert.equal(b.f.counts, 1);
+});
+
+test("the daily cap blocks a subscription's 21st receipt", async () => {
+  const { r } = await fake();
+  r.onHead(1_000n);
+  for (let b = 1n; b <= 21n; b++) await r.fire(SUB, TARGET, "warned", b);
+  assert.equal(r.queued, 20);
+});
+
+test("a free count that throws once → the trigger fires on the next head", async () => {
+  const { f, r } = await fake();
+  f.failCount = true;
+  r.onHead(100n);
+  await r.fire(SUB, TARGET, "warned", 100n);
+  assert.equal(r.queued, 0); // not marked fired, claim released
+  r.onHead(101n);
+  await r.fire(SUB, TARGET, "warned", 100n); // the monitor calls again on the next head
+  assert.equal(r.queued, 1);
+});
+
+test("10 receipts flush in one batch; the file holds them during the send, then empties", async () => {
+  const { f, r } = await fake();
+  r.onHead(1_000n);
+  for (let b = 1n; b <= 10n; b++) await r.fire(SUB, TARGET, "warned", b);
+  r.onHead(1_001n);
+  await until(() => f.batches.length === 1, "the flush");
+  assert.equal(f.batches[0]!.length, 10);
+  assert.equal(JSON.parse(f.fileDuringSend).length, 10);
+  let onDisk = "";
+  await until(() => {
+    void readFile(f.file, "utf8").then((t) => (onDisk = t));
+    return onDisk === "[]";
+  }, "the file to empty after the send");
+});
+
+test("a batch that throws is requeued and retried after the backoff", async () => {
+  mock.timers.enable({ apis: ["Date"] });
+  try {
+    const { f, r } = await fake();
+    r.onHead(1_000n);
+    for (let b = 1n; b <= 10n; b++) await r.fire(SUB, TARGET, "warned", b);
+    f.next = "throw";
+    r.onHead(1_001n);
+    await until(
+      () => r.queued === 10 && f.fileDuringSend !== "",
+      "the requeue",
+    );
+    await new Promise((res) => setTimeout(res, 20));
+    r.onHead(1_002n); // inside the 1 s backoff: no attempt
+    await new Promise((res) => setTimeout(res, 20));
+    assert.equal(f.batches.length, 0);
+    mock.timers.tick(1_000);
+    r.onHead(1_003n);
+    await until(() => f.batches.length === 1 && r.queued === 0, "the retry");
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test("a refused batch is dropped and logged; later receipts still go out", async () => {
+  const { f, r } = await fake();
+  r.onHead(1_000n);
+  for (let b = 1n; b <= 10n; b++) await r.fire(SUB, TARGET, "warned", b);
+  f.next = "refuse";
+  r.onHead(1_001n);
+  await until(() => r.queued === 0 && f.fileDuringSend !== "", "the drop");
+  await new Promise((res) => setTimeout(res, 20));
+  for (let b = 11n; b <= 20n; b++) await r.fire(SUB, TARGET, "warned", b);
+  r.onHead(1_010n);
+  await until(() => f.batches.length === 1, "the next flush");
+  assert.equal(f.batches[0]!.length, 10);
+});
+
+test("resume() requeues only the receipts that never landed", async () => {
+  const { f, r } = await fake();
+  const saved = [1n, 2n].map((b) => ({
+    id: idFor(b),
+    subscription: SUB.key,
+    subject: TARGET,
+    event: "warned",
+    triggerBlock: String(b),
+    doneBlock: String(b),
+  }));
+  await writeFile(f.file, JSON.stringify(saved));
+  f.landed.add(idFor(1n)); // the crash happened after this one's batch landed
+  await r.resume();
+  assert.equal(r.queued, 1);
+  await r.fire(SUB, TARGET, "warned", 2n); // already queued: not added twice
+  assert.equal(r.queued, 1);
+  r.onHead(5_000n);
+  await until(() => f.batches.length === 1, "the flush");
+  assert.equal(f.batches[0]!.length, 1);
+});
