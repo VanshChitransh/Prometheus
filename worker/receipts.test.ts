@@ -122,7 +122,7 @@ test("20 fire() calls for one trigger while B waits → exactly 1 receipt queued
   r.onHead(100n);
   for (let i = 0; i < 20; i++) void r.fire(SUB, TARGET, "warned", 100n);
   r.onHead(114n);
-  await until(() => true, "a turn");
+  await new Promise((res) => setTimeout(res, 20)); // a real wait: every fire has had its turns
   assert.equal(r.queued, 0); // B still waiting
   assert.equal(f.counts, 0);
   r.onHead(115n);
@@ -304,7 +304,8 @@ test("a keep trigger goes to the keeper; a skip is queued with its note, kept is
 test("a keep trigger with no keeper configured fails loudly and stays unfired", async () => {
   const { r } = await fake();
   r.onHead(1_000n);
-  await r.fire(SUB, TARGET, "keep", 970n);
+  assert.equal(await r.fire(SUB, TARGET, "keep", 970n), "failed");
+  assert.equal(await r.fire(SUB, TARGET, "keep", 970n), "failed"); // tried again, not "done"
   assert.equal(r.queued, 0);
 });
 
@@ -343,4 +344,26 @@ test("100 concurrent fires on a sub capped at 20 queue exactly 20 (H4)", async (
     ),
   );
   assert.equal(r.queued, 20);
+});
+
+test("fire() reports done only once the receipt is in the pending file", async () => {
+  const { f, r } = await fake();
+  r.onHead(1_000n);
+  assert.equal(await r.fire(SUB, TARGET, "warned", 970n), "done");
+  // no wait: the checkpoint may pass this block right now, so the receipt must already be on disk
+  assert.equal(JSON.parse(await readFile(f.file, "utf8")).length, 1);
+});
+
+test("a bad trigger (negative block) is skipped, never thrown at a fire-and-forget caller", async () => {
+  const { r } = await fake();
+  assert.equal(await r.fire(SUB, TARGET, "warned", -5n), "skipped");
+});
+
+test("close() flushes what's queued, for a graceful shutdown", async () => {
+  const { f, r } = await fake();
+  r.onHead(1_000n);
+  for (let b = 1n; b <= 3n; b++) await r.fire(SUB, TARGET, "warned", b);
+  assert.equal(f.batches.length, 0); // below the flush threshold, no head since
+  await r.close();
+  assert.equal(f.batches.length, 1);
 });

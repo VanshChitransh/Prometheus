@@ -167,12 +167,44 @@ test("keeps: one atomic batch with the extension and its kept receipt", async ()
   assert.equal(b.creates[0].flags.readonly, true);
 });
 
-test("A and B compute the same atBlock, so a race can't extend twice", async () => {
-  const a = setup();
-  const b = setup();
-  await a.keep();
-  await b.keep();
-  assert.deepEqual(a.f.batches[0].extensions, b.f.batches[0].extensions);
+test("A and B racing on one chain extend to the same block, not twice", async () => {
+  // One shared chain. Both workers read exp 1,000 before either tx lands; the node keeps the later
+  // of the current and requested expiry, so an equal request is a no-op.
+  const chain = { exp: 1_000n };
+  const make = () =>
+    new Keeper({
+      writer: {
+        batch: async (p: any) => {
+          await new Promise((r) => setTimeout(r, 2));
+          const want = p.extensions[0].expires.expiresAt as bigint;
+          if (want > chain.exp) chain.exp = want;
+          return { ok: true, value: {} };
+        },
+      } as never,
+      pub: {
+        request: async () => ({
+          key: TARGET,
+          creator: OWNER,
+          owner: OWNER,
+          createdAt: toHex(1),
+          expiresAt: toHex(chain.exp),
+          creationFlags: { readonly: false, permissionlessExtension: true },
+          attributes: [],
+        }),
+        getBalance: async () => parseEther("1"),
+      } as never,
+      targets: new Targets(),
+      address: hex(5, 40),
+    });
+  const args = {
+    sub: SUB,
+    target: TARGET,
+    id: ID,
+    triggerBlock: HEAD,
+    head: HEAD,
+  };
+  await Promise.all([make().keep(args), make().keep(args)]);
+  assert.equal(chain.exp, 1_150n); // exp + keep_blocks once, never exp + 2 x keep_blocks
 });
 
 test("refused batches: lapsed target → already_expired; anything else → keep_failed", async () => {

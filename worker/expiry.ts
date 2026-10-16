@@ -118,7 +118,8 @@ export function dueTriggers(head: bigint, targets: Targets, subs: SubsIndex) {
         // Once a keep lands, ExpiryExtended moves expiresAt, so the next cycle re-arms on its own.
         const triggerBlock = t.expiresAt - sub.leadBlocks!;
         const event = sub.trigger === "keep" ? "keep" : "warned";
-        if (head >= triggerBlock)
+        // triggerBlock < 0 only on a chain younger than lead_blocks: nothing sensible to fire.
+        if (head >= triggerBlock && triggerBlock >= 0n)
           fires.push({ sub, target, event, triggerBlock, seen });
       }
       if (sub.trigger === "expired" && t.gone)

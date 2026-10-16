@@ -107,12 +107,15 @@ export class Receipts {
     triggerBlock: bigint,
     seen?: Seen,
   ): Promise<FireResult> {
-    const id = triggerId({
-      subscription: sub.key,
-      subject,
-      event,
-      triggerBlock,
-    });
+    let id: Hex;
+    try {
+      id = triggerId({ subscription: sub.key, subject, event, triggerBlock });
+    } catch (e) {
+      // e.g. a negative block (expiry before lead_blocks, possible on a freshly wiped chain): not a
+      // trigger anyone can act on. Must not throw: callers fire-and-forget.
+      console.error(`[receipts] bad trigger for ${sub.key}:`, e);
+      return "skipped";
+    }
     // max_per_day caps alerts; a keep isn't an alert, and skipping one would let the target lapse.
     // Keeps have their own global budget in the keeper.
     if (this.#fired.has(id)) return "done";
@@ -160,7 +163,7 @@ export class Receipts {
           };
         if (out?.retry) {
           if (receipt)
-            this.#queue({
+            await this.#queue({
               id: out.id ?? id,
               subscription: sub.key,
               subject,
@@ -170,16 +173,16 @@ export class Receipts {
           return "failed"; // not done: offered again on the next head (e.g. after a refill)
         }
       }
-      if (receipt) {
-        this.#pending.push({
+      // Awaited: "done" lets the block settle and the checkpoint pass it, so the receipt must be on
+      // disk first, or a crash in between loses a change/match receipt for good (audit).
+      if (receipt)
+        await this.#queue({
           id,
           subscription: sub.key,
           subject,
           triggerBlock,
           ...receipt,
         });
-        void this.#save();
-      }
       // Only on success: marking it in `finally` would make one transient RPC error lose the alert.
       this.#fired.add(id);
       return "done";
@@ -194,7 +197,13 @@ export class Receipts {
 
   #queue(r: Receipt) {
     this.#pending.push(r);
-    void this.#save();
+    return this.#save();
+  }
+
+  // Graceful shutdown: one last flush attempt, then wait for the pending file to be written.
+  async close() {
+    if (this.#pending.length > 0) await this.#flush();
+    await this.#saving;
   }
 
   onHead(head: bigint) {

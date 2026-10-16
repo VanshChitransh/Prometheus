@@ -1,6 +1,8 @@
 // The only module that reads process.env (LLD §8). Node only.
 // Checks every variable a role needs and throws once, listing every problem.
 
+import { getAddress, isAddress } from "viem";
+
 type Hex = `0x${string}`;
 
 // trustedWorkers: both roles trust only receipts these wallets created, never a lookalike.
@@ -19,7 +21,6 @@ type Configs = { worker: WorkerConfig; relay: RelayConfig };
 export type Role = keyof Configs;
 
 const PRIVATE_KEY = /^0x[0-9a-fA-F]{64}$/;
-const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
 export function loadConfig<R extends Role>(
   role: R,
@@ -40,15 +41,18 @@ export function loadConfig<R extends Role>(
 
   const trusted = read(
     "TRUSTED_WORKERS",
-    (v) => v.split(",").every((a) => ADDRESS.test(a.trim())),
-    "comma-separated 0x addresses",
+    // isAddress also checks the EIP-55 checksum of a mixed-case address, catching typos.
+    (v) => v.split(",").every((a) => isAddress(a.trim())),
+    "comma-separated 0x addresses (a mixed-case one must have a valid checksum)",
   );
   const base: Base = {
     http: read("ARKIV_HTTP", url("https:"), "an https:// URL")!,
     ws: read("ARKIV_WS", url("wss:"), "a wss:// URL")!,
     // Optional: without it, calls use the anonymous quota.
     accessKey: env.ARKIV_ACCESS_KEY?.trim() || undefined,
-    trustedWorkers: (trusted?.split(",").map((a) => a.trim()) ?? []) as Hex[],
+    // Checksummed, like rawGetEntity's creators, so equality checks need no lowercasing.
+    trustedWorkers: (trusted?.split(",").map((a) => getAddress(a.trim())) ??
+      []) as Hex[],
   };
 
   let config;

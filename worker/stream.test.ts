@@ -44,6 +44,7 @@ function fake(logs: ReturnType<typeof logged>[] = [], autoHead = true) {
     delivered: [] as string[],
     heads: [] as bigint[],
     httpHeads: [] as bigint[],
+    rawHeads: [] as bigint[],
   };
   const stop = startStream({
     ws: {
@@ -95,6 +96,7 @@ function fake(logs: ReturnType<typeof logged>[] = [], autoHead = true) {
       f.heads.push(n);
       f.checkpoint = n - 1n;
     },
+    onRawHead: (n) => f.rawHeads.push(n),
   });
   return { f, stop };
 }
@@ -205,5 +207,15 @@ test("the replay waits for the socket's first head, even when the HTTP node trai
   f.pushHead(106n); // the subscription is live now: replay must reach at least 106
   await new Promise((r) => setTimeout(r, 700));
   assert.deepEqual(f.delivered, ["7@106"]);
+  stop();
+});
+
+test("raw heads keep flowing while catching up (they drive the receipt flush)", async () => {
+  const { f, stop } = fake([logged(1, 103n)]);
+  await flush(); // the first head arrives; the replay is still held
+  f.pushHead(106n);
+  assert.deepEqual(f.heads, []); // the checkpoint waits for the replay...
+  assert.deepEqual(f.rawHeads, [105n, 106n]); // ...the flush clock doesn't
+  f.release();
   stop();
 });

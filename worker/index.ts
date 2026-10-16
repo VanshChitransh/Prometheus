@@ -68,8 +68,10 @@ const stopStream = startStream({
   http: pub,
   checkpoint: () => checkpoint,
   onEvent: dispatch.onEvent,
+  // The receipt flush only needs the clock, so it gets every head, even while catching up.
+  // Called before onHead, so fire() sees this head.
+  onRawHead: (head) => receipts.onHead(head),
   onHead: (head) => {
-    receipts.onHead(head); // first, so fire() sees this head
     expiry.onHead(head);
     // head − 1 is complete once its events are handled (a block's logs can land just after its
     // head); only then may the checkpoint pass it. Chained: in order, never two saves at once.
@@ -94,12 +96,18 @@ const stopResync = startResync({
   targets,
 });
 
-// Exiting mid-write is safe: the writer re-reads the nonce from the chain on the next start.
+// Graceful: stop taking work, then give the outbox one last flush and let the pending file and the
+// checkpoint finish writing (≤ 5 s). Exiting mid-write is still safe: the writer re-reads the nonce
+// on the next start, and resume() re-sends whatever the pending file holds.
 for (const signal of ["SIGTERM", "SIGINT"] as const)
-  process.once(signal, () => {
+  process.once(signal, async () => {
     console.log(`[worker] ${signal}, stopping`);
     stopStream();
     stopHeartbeat();
     stopResync();
+    await Promise.race([
+      Promise.all([receipts.close(), saving]),
+      new Promise((r) => setTimeout(r, 5_000)),
+    ]);
     process.exit(0);
   });

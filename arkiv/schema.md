@@ -50,7 +50,7 @@ erDiagram
         key target_key "the watched entity"
         addr target_owner "new_match only"
         u64 lead_blocks "30 to 43200"
-        u64 keep_blocks "keep only, more than lead_blocks"
+        u64 keep_blocks "keep only, more than lead_blocks, at least 1 h"
         u64 max_per_day "default 20, max 100"
     }
     RECEIPT {
@@ -89,16 +89,16 @@ erDiagram
 
 ## `subscription`: "watch this entity for me"
 
-| Attribute      | Type | Required for                     | Notes                                                                |
-| -------------- | ---- | -------------------------------- | -------------------------------------------------------------------- |
-| `project`      | str  | all                              |                                                                      |
-| `kind`         | str  | all                              | `subscription`                                                       |
-| `trigger`      | str  | all                              | `expiring`, `expired`, `changed`, `new_match` or `keep`              |
-| `target_key`   | key  | expiring, expired, changed, keep | the watched entity                                                   |
-| `target_owner` | addr | new_match (optional)             | only consider new entities from this owner                           |
-| `lead_blocks`  | u64  | expiring, keep                   | act this many blocks before expiry; 30 to 43,200 (1 min to 1 day)    |
-| `keep_blocks`  | u64  | keep                             | blocks added per extension; must be > `lead_blocks`; at most 30 days |
-| `max_per_day`  | u64  | all                              | alert cap per UTC day; default 20, max 100                           |
+| Attribute      | Type | Required for                     | Notes                                                                                      |
+| -------------- | ---- | -------------------------------- | ------------------------------------------------------------------------------------------ |
+| `project`      | str  | all                              |                                                                                            |
+| `kind`         | str  | all                              | `subscription`                                                                             |
+| `trigger`      | str  | all                              | `expiring`, `expired`, `changed`, `new_match` or `keep`                                    |
+| `target_key`   | key  | expiring, expired, changed, keep | the watched entity                                                                         |
+| `target_owner` | addr | new_match (optional)             | only consider new entities from this owner                                                 |
+| `lead_blocks`  | u64  | expiring, keep                   | act this many blocks before expiry; 30 to 43,200 (1 min to 1 day)                          |
+| `keep_blocks`  | u64  | keep                             | blocks added per extension; must be > `lead_blocks`; at least 1,800 (1 h); at most 30 days |
+| `max_per_day`  | u64  | all                              | alert cap per UTC day; default 20, max 100                                                 |
 
 - **Payload:** `{ v: 1, label }`, plus `search: <AST>` for `new_match` (a JSON tree, never a raw query string).
 - **Flags:** `permissionlessExtension` only when the user ticks "anyone can renew". Otherwise none.
@@ -108,22 +108,22 @@ erDiagram
 
 ## `receipt`: "this happened, and this worker acted"
 
-| Attribute       | Type    | Notes                                                                                                            |
-| --------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
-| `project`       | str     |                                                                                                                  |
-| `kind`          | str     | `receipt`                                                                                                        |
-| `trigger_id`    | bytes32 | `keccak256(subscription, subject, event, trigger_block)`: every worker computes the same id for the same trigger |
-| `subscription`  | key     | the subscription that asked                                                                                      |
-| `subject`       | key     | the target entity, or the newly matched entity                                                                   |
-| `event`         | str     | one of the 10 events below                                                                                       |
-| `trigger_block` | u64     | the block when the condition became true                                                                         |
-| `done_block`    | u64     | the block when this worker acted; `done_block − trigger_block` = lateness                                        |
+| Attribute       | Type    | Notes                                                                                                                                                                                                                            |
+| --------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `project`       | str     |                                                                                                                                                                                                                                  |
+| `kind`          | str     | `receipt`                                                                                                                                                                                                                        |
+| `trigger_id`    | bytes32 | `keccak256(subscription, subject, event, trigger_block)`: every worker computes the same id for the same trigger. For a keep, `event` is `"keep"` (the trigger), so every outcome shares one id; `keeper_low_funds` uses its own |
+| `subscription`  | key     | the subscription that asked                                                                                                                                                                                                      |
+| `subject`       | key     | the target entity, or the newly matched entity                                                                                                                                                                                   |
+| `event`         | str     | one of the 10 events below                                                                                                                                                                                                       |
+| `trigger_block` | u64     | the block when the condition became true                                                                                                                                                                                         |
+| `done_block`    | u64     | the block when this worker acted; `done_block − trigger_block` = lateness                                                                                                                                                        |
 
 **Events:** `warned`, `expired`, `patched`, `owner_changed`, `deleted`, `matched`, `kept`, `keep_skipped`, `keep_failed`, `keeper_low_funds`.
 
-- **Payload:** `{ v: 1, tx, note, target_creator, target_owner }`
-  - `tx`: the extension transaction, for `kept`.
-  - `note`: for `keep_skipped`, the reason: `not_permissionless`, `deny_listed`, `already_extended` or `already_expired`.
+- **Payload:** `{ v: 1, note, target_creator, target_owner }`
+  - No `tx`: a `kept` receipt is created in the same transaction as the extension, so that transaction is the receipt's own creation tx.
+  - `note`: for `keep_skipped`, the reason: `not_permissionless`, `deny_listed`, `already_extended`, `already_expired` or `budget` (the worker's daily keep budget is spent). For `keep_failed`, the engine's reason.
   - `target_creator` / `target_owner`: as last seen. An entity can be re-created under the same name after it expires, so the receipt pins _which_ one we watched.
 - **Flags:** `readonly`. This blocks **edits**. The owner (the worker) could still delete a receipt, but that deletion is itself public on chain. So the claim is "**cannot be rewritten; deletion is publicly logged**", not "cannot be removed".
 - **Lifetime:** 30 days.

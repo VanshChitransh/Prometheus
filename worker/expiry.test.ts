@@ -185,3 +185,16 @@ test("an expired subscription no longer fires (it lingers until the hourly re-sy
   subs.add(sub(4, { expiresAt: 960n }));
   assert.deepEqual(events(dueTriggers(970n, targets, subs)), []);
 });
+
+test("no trigger with a negative block (a chain younger than lead_blocks)", () => {
+  const subs = new SubsIndex();
+  subs.add(sub(1, { leadBlocks: 30n }));
+  const targets = new Targets();
+  targets.set(TARGET, {
+    expiresAt: 20n,
+    creator: OWNER,
+    owner: OWNER,
+    flags: { readonly: false, permissionlessExtension: false },
+  });
+  assert.deepEqual(events(dueTriggers(25n, targets, subs)), []);
+});

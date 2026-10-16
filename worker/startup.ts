@@ -16,7 +16,9 @@ import type { Receipts } from "./receipts.ts";
 import { discoverAll, type SubsIndex } from "./subs.ts";
 
 const ARKIV_ADDRESS = "0x4400000000000000000000000000000000000044"; // not exported by SDK 0.8.1
-const DAY_BLOCKS = 43_200n; // 24 h of 2 s blocks
+// How far back a target that's gone at startup is looked up. ponytail: past a day, `expired` isn't
+// written for it (it's just counted as unknown); raise this if workers can be down that long.
+const EXPIRED_LOOKBACK_BLOCKS = 43_200n; // 24 h of 2 s blocks
 const HOUR_MS = 60 * 60_000;
 
 // Every log of these three events for one entity: topic 0 = which event, topic 1 = entityKey (indexed).
@@ -58,7 +60,9 @@ export async function lastExpiry(
       {
         address: ARKIV_ADDRESS,
         topics: [TOPIC0, key.toLowerCase()],
-        fromBlock: numberToHex(head > DAY_BLOCKS ? head - DAY_BLOCKS : 0n),
+        fromBlock: numberToHex(
+          head > EXPIRED_LOOKBACK_BLOCKS ? head - EXPIRED_LOOKBACK_BLOCKS : 0n,
+        ),
         toBlock: numberToHex(head),
       },
     ],

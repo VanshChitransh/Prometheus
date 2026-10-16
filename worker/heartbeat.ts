@@ -85,7 +85,9 @@ export async function startHeartbeat(
     }
     if (!stopped) timer = setTimeout(beat, EVERY_MS);
   };
-  timer = setTimeout(beat, EVERY_MS);
+  // A reused entity is extended at once: after a long enough outage it may have only minutes left.
+  if (saved && key === saved) void beat();
+  else timer = setTimeout(beat, EVERY_MS);
 
   return () => {
     stopped = true;

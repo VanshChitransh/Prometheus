@@ -25,6 +25,9 @@ export type StreamOptions = {
   checkpoint: () => bigint; // the last block fully handled; read at every (re)connect
   onEvent: (event: EntityEvent) => void;
   onHead: (head: bigint) => void; // only once caught up, so a checkpoint never skips unreplayed blocks
+  // Every head, even while catching up: for work that only needs the clock (the receipt flush).
+  // Withholding it stalled a buffering worker's flush, so its partner wrote duplicates (audit).
+  onRawHead?: (head: bigint) => void;
 };
 
 // Starts listening and returns a function that stops it.
@@ -34,6 +37,7 @@ export function startStream({
   checkpoint,
   onEvent,
   onHead,
+  onRawHead,
 }: StreamOptions) {
   const seen = new SeenLogs();
   let generation = 0; // bumped by every connect and by stop; an older catch-up seeing a newer one quits
@@ -103,6 +107,7 @@ export function startStream({
             armStall();
             if (n > lastHead) lastHead = n;
             first.resolve(n);
+            onRawHead?.(n);
             if (!buffer) onHead(n);
           },
           onError: (e) => catchUpSoon("heads", e),

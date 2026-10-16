@@ -2,6 +2,8 @@
 // write waits in one line: one transaction in flight, with a nonce we count ourselves. viem's
 // nonceManager burns a nonce when gas estimation reverts, which freezes the wallet (LLD §9).
 // ponytail: one queue, one wallet; split keeper onto its own wallet if keeps starve receipts
+// ponytail: no fee bump: an underpriced tx would block the nonces after it. Fine on Tiramisu's single
+// producer; add replacement-by-fee before running against a congested chain.
 import type {
   CreateEntityParameters,
   ExecuteBatchParameters,
