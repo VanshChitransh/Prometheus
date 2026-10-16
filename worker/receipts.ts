@@ -13,6 +13,7 @@ import { freeCount, trustedFilter } from "../shared/arkiv.ts";
 import { PROJECT, type Event } from "../shared/schema.ts";
 import type { Sub } from "../shared/subscription.ts";
 import { triggerId } from "../shared/triggerId.ts";
+import type { Keeper } from "./keeper.ts";
 import type { Writer } from "./writer.ts";
 
 const FLUSH_AT = 10; // receipts
@@ -33,6 +34,7 @@ export type Receipt = {
   doneBlock: bigint;
   targetCreator?: Hex;
   targetOwner?: Hex;
+  note?: string; // why a keep was skipped or failed
 };
 
 // The target as last seen; pins which entity was watched if one is re-created under the same name.
@@ -46,6 +48,7 @@ export class Receipts {
   readonly #delay: bigint;
   readonly #file: string;
   readonly #trusted: string; // the $creator filter for every receipt count
+  readonly #keeper?: Pick<Keeper, "keep">;
   // ponytail: one id per trigger, never pruned; fine at hundreds a day, prune by trigger block if
   // it ever reaches millions. Rebuilt from receipts on restart (T2.8).
   readonly #fired = new Set<Hex>(); // done here or found on chain (fast path; the truth is on Arkiv)
@@ -67,12 +70,14 @@ export class Receipts {
     delayBlocks: number;
     file: string;
     trustedWorkers: Hex[];
+    keeper?: Pick<Keeper, "keep">; // acts on "keep" triggers (T2.11)
   }) {
     this.#writer = o.writer;
     this.#pub = o.pub;
     this.#delay = BigInt(o.delayBlocks);
     this.#file = o.file;
     this.#trusted = trustedFilter(o.trustedWorkers);
+    this.#keeper = o.keeper;
   }
 
   get queued() {
@@ -80,10 +85,12 @@ export class Receipts {
   }
 
   // Safe to call on every head while a condition holds: a trigger acts once. Never throws.
+  // "keep" goes to the keeper, which writes its own receipt: `kept` atomically with the extension,
+  // or a skip/failure outcome that's queued here like any other receipt.
   async fire(
     sub: Sub,
     subject: Hex,
-    event: Event,
+    event: Event | "keep",
     triggerBlock: bigint,
     seen?: Seen,
   ) {
@@ -93,7 +100,13 @@ export class Receipts {
       event,
       triggerBlock,
     });
-    if (this.#fired.has(id) || this.#inFlight.has(id) || this.#overCap(sub))
+    // max_per_day caps alerts; a keep isn't an alert, and skipping one would let the target lapse.
+    // Keeps have their own global budget in the keeper.
+    if (
+      this.#fired.has(id) ||
+      this.#inFlight.has(id) ||
+      (event !== "keep" && this.#overCap(sub))
+    )
       return;
     // Claim before any await, or every call during B's 15-block wait would pass the checks above.
     this.#inFlight.add(id);
@@ -103,18 +116,57 @@ export class Receipts {
         this.#fired.add(id); // the other worker already acted
         return;
       }
-      this.#pending.push({
-        id,
-        subscription: sub.key,
-        subject,
-        event,
-        triggerBlock,
-        doneBlock: this.#head,
-        targetCreator: seen?.creator,
-        targetOwner: seen?.owner,
-      });
-      void this.#save();
-      this.#countToday(sub.key);
+      let receipt:
+        | Omit<Receipt, "id" | "subscription" | "subject" | "triggerBlock">
+        | undefined;
+      if (event !== "keep")
+        receipt = {
+          event,
+          doneBlock: this.#head,
+          targetCreator: seen?.creator,
+          targetOwner: seen?.owner,
+        };
+      else {
+        if (!this.#keeper) throw new Error("no keeper configured");
+        const out = await this.#keeper.keep({
+          sub,
+          target: subject,
+          id,
+          triggerBlock,
+          head: this.#head,
+        });
+        // undefined: kept, and the extension's own transaction already wrote the receipt.
+        if (out?.event)
+          receipt = {
+            event: out.event,
+            note: out.note,
+            doneBlock: this.#head,
+            targetCreator: out.seen?.creator,
+            targetOwner: out.seen?.owner,
+          };
+        if (out?.retry) {
+          if (receipt)
+            this.#queue({
+              id: out.id ?? id,
+              subscription: sub.key,
+              subject,
+              triggerBlock,
+              ...receipt,
+            });
+          return; // not done: offered again on the next head (e.g. after a refill)
+        }
+      }
+      if (receipt) {
+        this.#pending.push({
+          id,
+          subscription: sub.key,
+          subject,
+          triggerBlock,
+          ...receipt,
+        });
+        void this.#save();
+      }
+      if (event !== "keep") this.#countToday(sub.key);
       // Only on success: marking it in `finally` would make one transient RPC error lose the alert.
       this.#fired.add(id);
     } catch (e) {
@@ -125,6 +177,11 @@ export class Receipts {
     } finally {
       this.#inFlight.delete(id);
     }
+  }
+
+  #queue(r: Receipt) {
+    this.#pending.push(r);
+    void this.#save();
   }
 
   onHead(head: bigint) {
@@ -173,7 +230,7 @@ export class Receipts {
       await this.#save(); // before sending, so a crash mid-send leaves them for resume()
       let r;
       try {
-        r = await this.#writer.batch({ creates: batch.map(toCreate) });
+        r = await this.#writer.batch({ creates: batch.map(receiptCreate) });
       } catch (e) {
         this.#pending.unshift(...batch);
         this.#backoffMs = Math.min(
@@ -249,9 +306,11 @@ export class Receipts {
   }
 }
 
-const toCreate = (r: Receipt): CreateEntityParameters => ({
+// Every receipt is built here, including the keeper's atomic `kept` one (LLD §2.3).
+export const receiptCreate = (r: Receipt): CreateEntityParameters => ({
   payload: jsonToPayload({
     v: 1,
+    note: r.note,
     target_creator: r.targetCreator,
     target_owner: r.targetOwner,
   }),

@@ -6,6 +6,7 @@ import { loadCheckpoint, saveCheckpoint } from "../shared/replay.ts";
 import { createDispatch } from "./events.ts";
 import { ExpiryMonitor, Targets } from "./expiry.ts";
 import { startHeartbeat } from "./heartbeat.ts";
+import { Keeper } from "./keeper.ts";
 import { Receipts } from "./receipts.ts";
 import { rebuildDayCounts, seedTargets, startResync } from "./startup.ts";
 import { startStream } from "./stream.ts";
@@ -46,6 +47,8 @@ const receipts = new Receipts({
   delayBlocks: cfg.delayBlocks,
   file: `state/pending-${address}.json`,
   trustedWorkers: cfg.trustedWorkers,
+  // Extends `keep` targets through the same writer (one wallet, one nonce queue).
+  keeper: new Keeper({ writer, pub, targets, address }),
 });
 await receipts.resume(); // receipts a crash left unsent
 // LLD §3.2 step 4: today's counts, so a restart doesn't reset max_per_day.

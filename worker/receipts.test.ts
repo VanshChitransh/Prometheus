@@ -44,7 +44,10 @@ const TRUSTED = `0x${"5".repeat(40)}` as Hex;
 // A fake chain: `landed` holds trigger ids with a receipt from a trusted worker; `forged` holds ids
 // with a receipt from some other wallet, which only a query without the $creator filter would count. The writer records batches;
 // `next` makes the next batch throw ("throw") or be refused ("refuse").
-async function fake(delayBlocks = 0) {
+async function fake(
+  delayBlocks = 0,
+  keeper?: ConstructorParameters<typeof Receipts>[0]["keeper"],
+) {
   const file = join(await mkdtemp(join(tmpdir(), "receipts-")), "pending.json");
   const f = {
     file,
@@ -93,6 +96,7 @@ async function fake(delayBlocks = 0) {
     delayBlocks,
     file,
     trustedWorkers: [TRUSTED],
+    keeper,
   });
   return { f, r };
 }
@@ -234,4 +238,63 @@ test("a seeded day count (restored after a restart) still caps the subscription"
   await r.fire(SUB, TARGET, "warned", 1n);
   await r.fire(SUB, TARGET, "warned", 2n);
   assert.equal(r.queued, 1); // 19 + 1 = maxPerDay
+});
+
+test("a keep trigger goes to the keeper; a skip is queued with its note, kept is not re-queued", async () => {
+  const calls: Hex[] = [];
+  const skipped = await fake(0, {
+    keep: async (k) => {
+      calls.push(k.id);
+      return {
+        event: "keep_skipped",
+        note: "deny_listed",
+        seen: { creator: TRUSTED, owner: TRUSTED },
+      };
+    },
+  });
+  skipped.r.onHead(1_000n);
+  await skipped.r.fire(SUB, TARGET, "keep", 970n);
+  await skipped.r.fire(SUB, TARGET, "keep", 970n); // fired: the keeper isn't asked twice
+  assert.equal(calls.length, 1);
+  assert.equal(skipped.r.queued, 1);
+  skipped.r.onHead(1_010n);
+  await until(() => skipped.f.batches.length === 1, "the flush");
+
+  const kept = await fake(0, { keep: async () => undefined }); // receipt already in the extend tx
+  kept.r.onHead(1_000n);
+  await kept.r.fire(SUB, TARGET, "keep", 970n);
+  assert.equal(kept.r.queued, 0);
+});
+
+test("a keep trigger with no keeper configured fails loudly and stays unfired", async () => {
+  const { r } = await fake();
+  r.onHead(1_000n);
+  await r.fire(SUB, TARGET, "keep", 970n);
+  assert.equal(r.queued, 0);
+});
+
+test("keeps don't use max_per_day slots (skipping one would let the target lapse)", async () => {
+  let calls = 0;
+  const { r } = await fake(0, { keep: async () => (calls++, undefined) });
+  r.seedDayCount(SUB.key, 20); // the alert cap is full
+  r.onHead(1_000n);
+  await r.fire(SUB, TARGET, "keep", 970n);
+  assert.equal(calls, 1);
+  await r.fire(SUB, TARGET, "warned", 970n); // alerts are still capped
+  assert.equal(r.queued, 0);
+});
+
+test("a keep outcome with retry writes its receipt but stays unfired", async () => {
+  let calls = 0;
+  const { r } = await fake(0, {
+    keep: async () =>
+      ++calls === 1
+        ? { event: "keeper_low_funds", retry: true, id: hex(77) }
+        : undefined,
+  });
+  r.onHead(1_000n);
+  await r.fire(SUB, TARGET, "keep", 970n);
+  assert.equal(r.queued, 1); // the low-funds notice
+  await r.fire(SUB, TARGET, "keep", 970n); // offered again, now funded
+  assert.equal(calls, 2);
 });

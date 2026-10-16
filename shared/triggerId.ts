@@ -6,11 +6,13 @@ import type { Event } from "./schema.ts";
 // No block hash in the id: Tiramisu has a single block producer, so reorgs aren't expected.
 // Known limit: a reorged trigger could be suppressed by a stale receipt.
 // Named fields, not positional args: subscription and subject are both Hex and easy to swap.
+// A keep trigger is named "keep", not by its outcome (kept, keep_skipped, …), so every outcome of one
+// trigger shares an id and A and B dedupe across them.
 // encodePacked is unambiguous here: `event` is the only variable-length field.
 export const triggerId = (t: {
   subscription: Hex;
   subject: Hex;
-  event: Event;
+  event: Event | "keep";
   triggerBlock: bigint;
 }): Hex =>
   keccak256(

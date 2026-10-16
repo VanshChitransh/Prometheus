@@ -21,7 +21,7 @@ export type Target = {
 export type Fire = {
   sub: Sub;
   target: Hex;
-  event: "warned" | "expired";
+  event: "warned" | "expired" | "keep";
   triggerBlock: bigint;
   seen: Seen;
 };
@@ -86,7 +86,7 @@ export class Targets {
 // Pure: what's due at `head`, and which targets need a free read to confirm they expired. No RPC.
 // A target counts as expired at head >= expiresAt (the node treats an entity as live iff
 // expiresAt > block). fire() is idempotent through triggerId, so returning a trigger on every head
-// while its condition holds is intended. keep subscriptions are the keeper's (T2.11).
+// while its condition holds is intended. A keep trigger goes to the keeper through fire() (T2.11).
 // ponytail: linear scan of the cache each block; switch to a min-heap if targets > ~5k.
 export function dueTriggers(head: bigint, targets: Targets, subs: SubsIndex) {
   const fires: Fire[] = [];
@@ -94,10 +94,12 @@ export function dueTriggers(head: bigint, targets: Targets, subs: SubsIndex) {
   for (const [target, t] of targets.entries()) {
     const seen = { creator: t.creator, owner: t.owner };
     for (const sub of subs.forTarget(target)) {
-      if (sub.trigger === "expiring" && !t.gone) {
+      if ((sub.trigger === "expiring" || sub.trigger === "keep") && !t.gone) {
+        // Once a keep lands, ExpiryExtended moves expiresAt, so the next cycle re-arms on its own.
         const triggerBlock = t.expiresAt - sub.leadBlocks!;
+        const event = sub.trigger === "keep" ? "keep" : "warned";
         if (head >= triggerBlock)
-          fires.push({ sub, target, event: "warned", triggerBlock, seen });
+          fires.push({ sub, target, event, triggerBlock, seen });
       }
       if (sub.trigger === "expired" && t.gone)
         fires.push({

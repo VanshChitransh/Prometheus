@@ -60,4 +60,5 @@ export const LIFETIMES = {
 } as const;
 
 // Targets the keeper never extends: these are meant to expire when their owner stops.
-export const DENY_LIST = /canary|heartbeat|liveness|deadman/i;
+export const DENY_LIST =
+  /canary|heart.?beat|liveness|dead.?man|keep.?alive|watchdog/i;

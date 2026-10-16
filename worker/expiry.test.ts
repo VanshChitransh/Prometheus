@@ -136,3 +136,14 @@ test("a target nobody watches any more is dropped from the cache", () => {
   m.onHead(10n);
   assert.equal(targets.size, 0);
 });
+
+test("a keep subscription fires `keep` at exp − lead, and re-arms after an extension", () => {
+  const { targets } = setup();
+  const subs = new SubsIndex();
+  subs.add(sub(3, { trigger: "keep", keepBlocks: 150n }));
+  assert.deepEqual(events(dueTriggers(969n, targets, subs)), []);
+  assert.deepEqual(events(dueTriggers(970n, targets, subs)), ["keep@970"]);
+  targets.extend(TARGET, 1_150n); // the keeper's extension, seen via ExpiryExtended
+  assert.deepEqual(events(dueTriggers(1_000n, targets, subs)), []);
+  assert.deepEqual(events(dueTriggers(1_120n, targets, subs)), ["keep@1120"]);
+});
