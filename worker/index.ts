@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { publicHttp, publicWs, walletClient } from "../shared/arkiv.ts";
 import { loadConfig } from "../shared/config.ts";
 import { loadCheckpoint, saveCheckpoint } from "../shared/replay.ts";
+import { ExpiryMonitor, Targets } from "./expiry.ts";
 import { startHeartbeat } from "./heartbeat.ts";
 import { Receipts } from "./receipts.ts";
 import { startStream } from "./stream.ts";
@@ -24,8 +25,15 @@ let checkpoint =
   (await loadCheckpoint(CHECKPOINT)) ?? (await pub.getBlockNumber()) - 1_800n;
 let saving = Promise.resolve();
 
-// LLD §3.2 step 2. The index feeds the expiry monitor and event dispatch (T2.5, T2.7).
-await discoverAll(pub);
+// LLD §3.2 steps 2–3: discover subscriptions, then seed each distinct target (one free read each).
+// A target already gone isn't cached; T2.8's startup sequence handles that case.
+const subs = await discoverAll(pub);
+const targets = new Targets();
+const watched = new Set(subs.all().flatMap((s) => s.targetKey ?? []));
+const live = await Promise.all([...watched].map((k) => targets.seed(pub, k)));
+console.log(
+  `[expiry] seeded ${targets.size} targets (${live.filter((ok) => !ok).length} already gone)`,
+);
 
 // fire() is called by the expiry monitor and event dispatch (T2.5, T2.7).
 const receipts = new Receipts({
@@ -35,6 +43,7 @@ const receipts = new Receipts({
   file: `state/pending-${address}.json`,
 });
 await receipts.resume(); // receipts a crash left unsent
+const expiry = new ExpiryMonitor({ pub, targets, subs: () => subs, receipts });
 
 const stopStream = startStream({
   ws: publicWs(cfg.ws),
@@ -46,7 +55,8 @@ const stopStream = startStream({
   // ponytail: head − 1 counts as fully handled (a block's logs can land just after its head);
   // T2.7 advances the checkpoint only once a block's events are processed.
   onHead: (head) => {
-    receipts.onHead(head);
+    receipts.onHead(head); // first, so fire() sees this head
+    expiry.onHead(head);
     checkpoint = head - 1n;
     const block = checkpoint;
     // Chained, so two saves never race on the same temp file.
