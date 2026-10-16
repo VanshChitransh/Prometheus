@@ -60,6 +60,10 @@ export class SubsIndex {
     return sub;
   }
 
+  get(key: Hex): Sub | undefined {
+    return this.#subs.get(lower(key));
+  }
+
   forTarget(target: Hex): Sub[] {
     return this.#pick(this.#byTarget.get(lower(target)));
   }

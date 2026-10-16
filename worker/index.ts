@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { publicHttp, publicWs, walletClient } from "../shared/arkiv.ts";
 import { loadConfig } from "../shared/config.ts";
 import { loadCheckpoint, saveCheckpoint } from "../shared/replay.ts";
+import { createDispatch } from "./events.ts";
 import { ExpiryMonitor, Targets } from "./expiry.ts";
 import { startHeartbeat } from "./heartbeat.ts";
 import { Receipts } from "./receipts.ts";
@@ -44,24 +45,26 @@ const receipts = new Receipts({
 });
 await receipts.resume(); // receipts a crash left unsent
 const expiry = new ExpiryMonitor({ pub, targets, subs: () => subs, receipts });
+const dispatch = createDispatch({ pub, subs: () => subs, targets });
 
 const stopStream = startStream({
   ws: publicWs(cfg.ws),
   http: pub,
   checkpoint: () => checkpoint,
-  // Placeholder until the event dispatch (T2.7).
-  onEvent: (e) =>
-    console.log(`[event] ${e.type} ${e.entityKey} block ${e.blockNumber}`),
-  // ponytail: head − 1 counts as fully handled (a block's logs can land just after its head);
-  // T2.7 advances the checkpoint only once a block's events are processed.
+  onEvent: dispatch.onEvent,
   onHead: (head) => {
     receipts.onHead(head); // first, so fire() sees this head
     expiry.onHead(head);
-    checkpoint = head - 1n;
-    const block = checkpoint;
-    // Chained, so two saves never race on the same temp file.
+    // head − 1 is complete once its events are handled (a block's logs can land just after its
+    // head); only then may the checkpoint pass it. Chained: in order, never two saves at once.
+    const block = head - 1n;
     saving = saving
-      .then(() => saveCheckpoint(CHECKPOINT, block))
+      .then(() => dispatch.settle(block))
+      .then(() => {
+        if (block <= checkpoint) return; // a repeated head after a reconnect
+        checkpoint = block;
+        return saveCheckpoint(CHECKPOINT, block);
+      })
       .catch((e) => console.error("[worker] checkpoint save failed:", e));
   },
 });
