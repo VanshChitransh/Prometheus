@@ -4,6 +4,7 @@
 import type { EntityCreatedEvent, PublicArkivClient } from "@arkiv-network/sdk";
 import type { Hex } from "viem";
 import { freeCount } from "../shared/arkiv.ts";
+import { MATCH_SUBS_PER_EVENT } from "../shared/schema.ts";
 import { withKey } from "../shared/searchAst.ts";
 import type { Sub } from "../shared/subscription.ts";
 import { throwIfFailed, type Receipts } from "./receipts.ts";
@@ -35,12 +36,30 @@ export async function matchCreated(o: {
       s.expiresAt > e.blockNumber && // an expired subscription no longer asks
       (!s.targetOwner || s.targetOwner.toLowerCase() === owner),
   );
-  const matched: Sub[] = [];
-  for (const s of candidates)
-    if (
-      (await freeCount(pub, withKey(s.search!, e.entityKey).toString())) === 1
+  // At most MATCH_SUBS_PER_EVENT, oldest first (audit M5): the per-creator cap is 20, so three
+  // throwaway wallets could otherwise fill the dispatch slots with match counts and stall every other
+  // event. And one count per distinct search: subscriptions asking the same question share it.
+  if (candidates.length > MATCH_SUBS_PER_EVENT) warnCapped(candidates.length);
+  const bySearch = new Map<string, Sub[]>();
+  for (const s of candidates
+    .sort((a, b) =>
+      a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0,
     )
-      matched.push(s);
+    .slice(0, MATCH_SUBS_PER_EVENT)) {
+    const q = s.search!.toString();
+    const group = bySearch.get(q);
+    if (group) group.push(s);
+    else bySearch.set(q, [s]);
+  }
+  const matched: Sub[] = [];
+  for (const group of bySearch.values())
+    if (
+      (await freeCount(
+        pub,
+        withKey(group[0]!.search!, e.entityKey).toString(),
+      )) === 1
+    )
+      matched.push(...group);
   if (matched.length === 0) return;
   return () =>
     Promise.all(
@@ -51,4 +70,14 @@ export async function matchCreated(o: {
         }),
       ),
     ).then(throwIfFailed); // never offered again: a failed fire throws, the dispatcher retries
+}
+
+let lastCapWarning = 0;
+// Once a minute at most: the cap bites on every created entity while it holds.
+function warnCapped(n: number) {
+  if (Date.now() - lastCapWarning < 60_000) return;
+  lastCapWarning = Date.now();
+  console.warn(
+    `[match] ${n} new_match subscriptions; evaluating the oldest ${MATCH_SUBS_PER_EVENT} per event`,
+  );
 }

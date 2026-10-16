@@ -37,6 +37,7 @@ export const KEEP_SKIP_REASONS = [
   "deny_listed",
   "already_extended",
   "already_expired",
+  "budget", // the worker's daily keep budget is spent
 ] as const;
 export type KeepSkipReason = (typeof KEEP_SKIP_REASONS)[number];
 
@@ -47,6 +48,8 @@ export const BLOCKS_PER_DAY = 43_200;
 export const BOUNDS = {
   leadBlocks: { min: 30, max: BLOCKS_PER_DAY },
   keepBlocksMax: 30 * BLOCKS_PER_DAY,
+  // At least 1 h per extension: a keep every few blocks would burn a worker's gas for one target.
+  keepBlocksMin: BLOCKS_PER_DAY / 24,
   maxPerDay: { default: 20, max: 100 },
   subsPerCreator: 20,
   search: { depth: 3, predicates: 8 },
@@ -58,6 +61,11 @@ export const LIFETIMES = {
   receiptDays: 30,
   subscriptionDays: [1, 7, 30],
 } as const;
+
+// Abuse limits (audit M4, M5): extends one worker pays for per UTC day, and new_match subscriptions
+// evaluated per created entity (oldest first).
+export const KEEP_BUDGET_PER_DAY = 200;
+export const MATCH_SUBS_PER_EVENT = 50;
 
 // Targets the keeper never extends: these are meant to expire when their owner stops.
 export const DENY_LIST =

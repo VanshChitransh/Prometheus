@@ -35,6 +35,8 @@ function setup(
     gone?: boolean;
     balance?: string;
     notExtended?: boolean;
+    project?: string;
+    fixedExp?: boolean; // the chain's expiry doesn't move (to hit the budget, not rule 4)
     batch?: "ok" | "expired" | "refused" | "throw";
     cached?: boolean;
   } = {},
@@ -64,6 +66,9 @@ function setup(
             creationFlags: flags,
             attributes: [
               { name: "kind", type: "str", value: o.kind ?? "listing" },
+              ...(o.project
+                ? [{ name: "project", type: "str", value: o.project }]
+                : []),
             ],
           };
     },
@@ -91,7 +96,7 @@ function setup(
         );
       if (o.batch === "refused")
         return refuse("InvalidOpType", "Transaction failed: something else");
-      f.exp = p.extensions[0].expires.expiresAt;
+      if (!o.fixedExp) f.exp = p.extensions[0].expires.expiresAt;
       return { ok: true, value: {} };
     },
   };
@@ -226,4 +231,17 @@ test("the deny-list catches common spellings", async () => {
     "Watchdog",
   ])
     assert.equal((await setup({ kind }).keep())?.note, "deny_listed", kind);
+});
+
+test("the daily keep budget caps how many extends one worker pays for", async () => {
+  const { f, keep } = setup({ fixedExp: true });
+  for (let i = 0; i < 200; i++) assert.equal(await keep(), undefined);
+  assert.equal((await keep())?.note, "budget");
+  assert.equal(f.batches.length, 200);
+});
+
+test("never extends Prometheus's own entities (subscriptions keeping each other alive)", async () => {
+  const { f, keep } = setup({ project: "prometheus", kind: "subscription" });
+  assert.equal((await keep())?.note, "deny_listed");
+  assert.equal(f.batches.length, 0);
 });

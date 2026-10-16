@@ -5,7 +5,12 @@ import type { PublicArkivClient } from "@arkiv-network/sdk";
 import { ExpirationTime } from "@arkiv-network/sdk/utils";
 import { parseEther, type Hex } from "viem";
 import { rawGetEntity } from "../shared/arkiv.ts";
-import { DENY_LIST, type Event } from "../shared/schema.ts";
+import {
+  DENY_LIST,
+  KEEP_BUDGET_PER_DAY,
+  PROJECT,
+  type Event,
+} from "../shared/schema.ts";
 import { triggerId } from "../shared/triggerId.ts";
 import type { Sub } from "../shared/subscription.ts";
 import type { Targets } from "./expiry.ts";
@@ -49,6 +54,9 @@ export class Keeper {
   // skips as already_extended) instead of sending a redundant tx built on the same stale read.
   readonly #locks = new Map<Hex, Promise<unknown>>();
   readonly #lowFunds = new Set<Hex>(); // triggers already told "low funds" this episode
+  // Extends sent today (UTC): anyone can point a keep sub at any permissionless target, so without a
+  // ceiling a few wallets could drain the worker's gas (audit M4).
+  #budget = { day: "", spent: 0 };
 
   constructor(o: {
     writer: Writer;
@@ -97,7 +105,9 @@ export class Keeper {
       return skip("not_permissionless", seen);
     // Rule 3. ponytail: a name heuristic (nothing on chain marks a canary); the owner's real
     // protection is creating it without permissionlessExtension (LLD §3.6, known limit).
+    // Our own entities too: two public subscriptions keeping each other alive would never end.
     if (
+      e.attributes.project === PROJECT ||
       DENY_LIST.test(`${e.attributes.kind ?? ""} ${e.attributes.project ?? ""}`)
     )
       return skip("deny_listed", seen);
@@ -120,6 +130,11 @@ export class Keeper {
       return { event: "keeper_low_funds", seen, retry: true, id };
     }
     this.#lowFunds.delete(k.id);
+
+    const day = new Date().toISOString().slice(0, 10);
+    if (this.#budget.day !== day) this.#budget = { day, spent: 0 };
+    if (this.#budget.spent >= KEEP_BUDGET_PER_DAY) return skip("budget", seen);
+    this.#budget.spent++; // counted when sent: a refused tx still costs gas
 
     // atBlock, not fromBlocks: A and B compute the same block, so a race sets an equal expiry
     // (a no-op on the node) instead of extending twice.
