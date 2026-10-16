@@ -6,6 +6,7 @@ import type { Hex } from "viem";
 import { rawGetEntity } from "../shared/arkiv.ts";
 import { PROJECT } from "../shared/schema.ts";
 import { decodeSubscription, type Sub } from "../shared/subscription.ts";
+import { inBatches } from "./limit.ts";
 
 const CAP_PER_CREATOR = 20; // LLD §3.8: beyond it, the newest are ignored
 const OVER_CAP = `over the ${CAP_PER_CREATOR}-per-creator cap`;
@@ -24,6 +25,9 @@ export class SubsIndex {
   readonly #subs = new Map<Hex, Sub>();
   readonly #byTarget = new Map<Hex, Set<Hex>>(); // the reverse index for events
   readonly #byCreator = new Map<Hex, Set<Hex>>();
+  // Keys removed from outside (a live EntityDeleted), so the hourly re-sync doesn't resurrect one
+  // that discovery read just before it was deleted. Replacements and evictions don't count.
+  readonly removed = new Set<Hex>();
 
   get size() {
     return this.#subs.size;
@@ -33,7 +37,7 @@ export class SubsIndex {
   // newest. ponytail: an evicted sub isn't promoted when one of the 20 goes away; the hourly
   // re-discovery (a fresh index) brings it back. Promote here if that hour starts to matter.
   add(sub: Sub): AddResult {
-    this.remove(sub.key); // the same subscription seen twice (discovery + live) replaces itself
+    this.#delete(sub.key); // the same subscription seen twice (discovery + live) replaces itself
     const mine = this.#byCreator.get(sub.creator);
     let evicted: Sub | undefined;
     if (mine && mine.size >= CAP_PER_CREATOR) {
@@ -41,7 +45,7 @@ export class SubsIndex {
         .map((k) => this.#subs.get(k)!)
         .reduce((a, b) => (older(a, b) ? b : a));
       if (older(newest, sub)) return { ok: false, reason: OVER_CAP };
-      evicted = this.remove(newest.key);
+      evicted = this.#delete(newest.key);
     }
     const id = lower(sub.key);
     this.#subs.set(id, sub);
@@ -51,6 +55,12 @@ export class SubsIndex {
   }
 
   remove(key: Hex): Sub | undefined {
+    const sub = this.#delete(key);
+    if (sub) this.removed.add(lower(key));
+    return sub;
+  }
+
+  #delete(key: Hex): Sub | undefined {
     const id = lower(key);
     const sub = this.#subs.get(id);
     if (!sub) return undefined;
@@ -113,8 +123,9 @@ export async function discoverAll(
     .fetch();
   const block = page.blockNumber;
   for (;;) {
-    const entities = await Promise.all(
-      page.entities.map((e) => rawGetEntity(client, e.key)),
+    // A page is up to 200 keys: read them 16 at a time, not all at once (audit M6).
+    const entities = await inBatches(page.entities, (e) =>
+      rawGetEntity(client, e.key),
     );
     for (const e of entities) {
       if (!e) continue; // expired between the query and the read

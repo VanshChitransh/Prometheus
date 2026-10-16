@@ -53,3 +53,17 @@ test("every problem is reported in one throw, without leaking values", () => {
       !e.message.includes("0xsecret"),
   );
 });
+
+test("TRUSTED_WORKERS: a mistyped checksum is rejected; lowercase is normalized to checksummed", () => {
+  const good = "0x6a693Fd642c1F8F5E78321C2722208A3791eE79B";
+  const typo = "0x6a693fd642c1F8F5E78321C2722208A3791eE79B"; // one letter's case flipped
+  assert.throws(
+    () => loadConfig("worker", { ...worker, TRUSTED_WORKERS: typo }),
+    /TRUSTED_WORKERS must be/,
+  );
+  const c = loadConfig("worker", {
+    ...worker,
+    TRUSTED_WORKERS: good.toLowerCase(),
+  });
+  assert.deepEqual(c.trustedWorkers, [good]);
+});

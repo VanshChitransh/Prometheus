@@ -21,7 +21,7 @@ export type Target = {
 export type Fire = {
   sub: Sub;
   target: Hex;
-  event: "warned" | "expired";
+  event: "warned" | "expired" | "keep";
   triggerBlock: bigint;
   seen: Seen;
 };
@@ -31,6 +31,9 @@ const lower = (k: Hex) => k.toLowerCase() as Hex;
 
 export class Targets {
   readonly #m = new Map<Hex, Target>();
+  // Bumped by every change to a key, so a read that started before the change knows it's stale.
+  // ponytail: one small number per target ever seen, never pruned; fine at thousands.
+  readonly #version = new Map<Hex, number>();
 
   get size() {
     return this.#m.size;
@@ -40,28 +43,35 @@ export class Targets {
     return this.#m.get(lower(k));
   }
 
+  #touch(k: Hex) {
+    this.#version.set(k, (this.#version.get(k) ?? 0) + 1);
+    return this.#m.get(k);
+  }
+
   set(k: Hex, t: Omit<Target, "gone">) {
+    this.#touch(lower(k));
     this.#m.set(lower(k), { ...t, gone: false });
   }
 
   // An extension also proves the target is alive.
   extend(k: Hex, expiresAt: bigint) {
-    const t = this.#m.get(lower(k));
+    const t = this.#touch(lower(k));
     if (t) Object.assign(t, { expiresAt, gone: false });
   }
 
   // Receipts pin the owner as last seen, so a transfer must reach the cache.
   transfer(k: Hex, owner: Hex) {
-    const t = this.#m.get(lower(k));
+    const t = this.#touch(lower(k));
     if (t) t.owner = owner;
   }
 
   markGone(k: Hex) {
-    const t = this.#m.get(lower(k));
+    const t = this.#touch(lower(k));
     if (t) t.gone = true;
   }
 
   delete(k: Hex) {
+    this.#touch(lower(k));
     this.#m.delete(lower(k));
   }
 
@@ -69,9 +79,16 @@ export class Targets {
     return this.#m.entries();
   }
 
-  // One free read. Caches a live target; false = it's gone (never existed, deleted or expired).
+  // One free read. Caches a live target; false = it's gone (never existed, deleted or expired). If an
+  // event changed the key while the read was in flight, the event is newer: keep what it wrote.
   async seed(pub: PublicArkivClient, k: Hex) {
+    const key = lower(k);
+    const before = this.#version.get(key);
     const e = await rawGetEntity(pub, k);
+    if (this.#version.get(key) !== before) {
+      const now = this.#m.get(key);
+      return !!now && !now.gone;
+    }
     if (!e) return false;
     this.set(k, {
       expiresAt: e.expiresAt,
@@ -86,7 +103,7 @@ export class Targets {
 // Pure: what's due at `head`, and which targets need a free read to confirm they expired. No RPC.
 // A target counts as expired at head >= expiresAt (the node treats an entity as live iff
 // expiresAt > block). fire() is idempotent through triggerId, so returning a trigger on every head
-// while its condition holds is intended. keep subscriptions are the keeper's (T2.11).
+// while its condition holds is intended. A keep trigger goes to the keeper through fire() (T2.11).
 // ponytail: linear scan of the cache each block; switch to a min-heap if targets > ~5k.
 export function dueTriggers(head: bigint, targets: Targets, subs: SubsIndex) {
   const fires: Fire[] = [];
@@ -94,10 +111,16 @@ export function dueTriggers(head: bigint, targets: Targets, subs: SubsIndex) {
   for (const [target, t] of targets.entries()) {
     const seen = { creator: t.creator, owner: t.owner };
     for (const sub of subs.forTarget(target)) {
-      if (sub.trigger === "expiring" && !t.gone) {
+      // An expired subscription no longer asks: there's no event for natural expiry, so it would
+      // otherwise keep firing until the hourly re-sync drops it.
+      if (sub.expiresAt <= head) continue;
+      if ((sub.trigger === "expiring" || sub.trigger === "keep") && !t.gone) {
+        // Once a keep lands, ExpiryExtended moves expiresAt, so the next cycle re-arms on its own.
         const triggerBlock = t.expiresAt - sub.leadBlocks!;
-        if (head >= triggerBlock)
-          fires.push({ sub, target, event: "warned", triggerBlock, seen });
+        const event = sub.trigger === "keep" ? "keep" : "warned";
+        // triggerBlock < 0 only on a chain younger than lead_blocks: nothing sensible to fire.
+        if (head >= triggerBlock && triggerBlock >= 0n)
+          fires.push({ sub, target, event, triggerBlock, seen });
       }
       if (sub.trigger === "expired" && t.gone)
         fires.push({

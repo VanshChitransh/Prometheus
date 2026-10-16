@@ -91,6 +91,7 @@ function monitor(alive: bigint | null) {
   const receipts = {
     fire: async (_s: Sub, _t: Hex, event: string, block: bigint) => {
       f.fired.push(`${event}@${block}`);
+      return "done" as const;
     },
   };
   const m = new ExpiryMonitor({
@@ -135,4 +136,65 @@ test("a target nobody watches any more is dropped from the cache", () => {
   subs.remove(hex(2));
   m.onHead(10n);
   assert.equal(targets.size, 0);
+});
+
+test("a keep subscription fires `keep` at exp − lead, and re-arms after an extension", () => {
+  const { targets } = setup();
+  const subs = new SubsIndex();
+  subs.add(sub(3, { trigger: "keep", keepBlocks: 150n }));
+  assert.deepEqual(events(dueTriggers(969n, targets, subs)), []);
+  assert.deepEqual(events(dueTriggers(970n, targets, subs)), ["keep@970"]);
+  targets.extend(TARGET, 1_150n); // the keeper's extension, seen via ExpiryExtended
+  assert.deepEqual(events(dueTriggers(1_000n, targets, subs)), []);
+  assert.deepEqual(events(dueTriggers(1_120n, targets, subs)), ["keep@1120"]);
+});
+
+test("an event that lands during a slow seed read wins over the read", async () => {
+  const targets = new Targets();
+  targets.set(TARGET, {
+    expiresAt: 1_000n,
+    creator: OWNER,
+    owner: OWNER,
+    flags: { readonly: false, permissionlessExtension: false },
+  });
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const pub = {
+    request: async () => (
+      await gate,
+      {
+        key: TARGET,
+        creator: OWNER,
+        owner: OWNER,
+        createdAt: toHex(1),
+        expiresAt: toHex(1_000),
+        attributes: [],
+      }
+    ),
+  };
+  const seeding = targets.seed(pub as never, TARGET); // reads the old expiry...
+  targets.extend(TARGET, 2_000n); // ...while an ExpiryExtended event lands
+  release();
+  assert.equal(await seeding, true);
+  assert.equal(targets.get(TARGET)?.expiresAt, 2_000n); // the newer event stays
+});
+
+test("an expired subscription no longer fires (it lingers until the hourly re-sync)", () => {
+  const { targets } = setup();
+  const subs = new SubsIndex();
+  subs.add(sub(4, { expiresAt: 960n }));
+  assert.deepEqual(events(dueTriggers(970n, targets, subs)), []);
+});
+
+test("no trigger with a negative block (a chain younger than lead_blocks)", () => {
+  const subs = new SubsIndex();
+  subs.add(sub(1, { leadBlocks: 30n }));
+  const targets = new Targets();
+  targets.set(TARGET, {
+    expiresAt: 20n,
+    creator: OWNER,
+    owner: OWNER,
+    flags: { readonly: false, permissionlessExtension: false },
+  });
+  assert.deepEqual(events(dueTriggers(25n, targets, subs)), []);
 });

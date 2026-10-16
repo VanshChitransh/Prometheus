@@ -11,12 +11,14 @@ import { decodeEventLog, encodeEventTopics, numberToHex, type Hex } from "viem";
 import { freeCount, trustedFilter } from "../shared/arkiv.ts";
 import { PROJECT } from "../shared/schema.ts";
 import type { Target, Targets } from "./expiry.ts";
+import { inBatches } from "./limit.ts";
 import type { Receipts } from "./receipts.ts";
 import { discoverAll, type SubsIndex } from "./subs.ts";
 
 const ARKIV_ADDRESS = "0x4400000000000000000000000000000000000044"; // not exported by SDK 0.8.1
-const DAY_BLOCKS = 43_200n; // 24 h of 2 s blocks
-const BATCH = 20; // concurrent free reads, so hundreds of subscriptions don't flood the node
+// How far back a target that's gone at startup is looked up. ponytail: past a day, `expired` isn't
+// written for it (it's just counted as unknown); raise this if workers can be down that long.
+const EXPIRED_LOOKBACK_BLOCKS = 43_200n; // 24 h of 2 s blocks
 const HOUR_MS = 60 * 60_000;
 
 // Every log of these three events for one entity: topic 0 = which event, topic 1 = entityKey (indexed).
@@ -27,11 +29,6 @@ const TOPIC0 = (
 );
 
 type Seen = Omit<Target, "gone">;
-
-async function inBatches<T>(items: T[], fn: (item: T) => Promise<unknown>) {
-  for (let i = 0; i < items.length; i += BATCH)
-    await Promise.all(items.slice(i, i + BATCH).map(fn));
-}
 
 // `head − ⌊(now − UTC midnight) / 2 s⌋`: today's first block, assuming 2 s blocks. It may drift a
 // few blocks, which is fine for a soft daily cap (LLD §3.1).
@@ -63,7 +60,9 @@ export async function lastExpiry(
       {
         address: ARKIV_ADDRESS,
         topics: [TOPIC0, key.toLowerCase()],
-        fromBlock: numberToHex(head > DAY_BLOCKS ? head - DAY_BLOCKS : 0n),
+        fromBlock: numberToHex(
+          head > EXPIRED_LOOKBACK_BLOCKS ? head - EXPIRED_LOOKBACK_BLOCKS : 0n,
+        ),
         toBlock: numberToHex(head),
       },
     ],
@@ -126,8 +125,18 @@ export async function seedTargets(
     targets.markGone(k);
     gone++;
   });
+  // LLD §3.8: expiring, changed and keep need a live target; only `expired` may watch one that
+  // already lapsed (that's what it's for). The rest can never fire usefully again.
+  let rejected = 0;
+  for (const s of subs.all()) {
+    const t = s.targetKey && targets.get(s.targetKey);
+    if (s.targetKey && s.trigger !== "expired" && (!t || t.gone)) {
+      subs.remove(s.key);
+      rejected++;
+    }
+  }
   console.log(
-    `[startup] ${watched.size} targets: ${watched.size - gone - unknown} live, ${gone} expired while away, ${unknown} gone with no expiry in the last day`,
+    `[startup] ${watched.size} targets: ${watched.size - gone - unknown} live, ${gone} expired while away, ${unknown} gone with no expiry in the last day; ${rejected} subscriptions dropped (target not live)`,
   );
 }
 
@@ -157,7 +166,11 @@ export async function rebuildDayCounts(
 // Pure. The fresh index is the truth as of `block`; an old subscription missing from it is kept only
 // if it was created after `block` (live dispatch added it while the query ran). One created before
 // and missing now has expired or been deleted, which emits no event for natural expiry: drop it.
+// Keys deleted live since the last re-sync are dropped from `fresh` too: discovery may have read one
+// just before its deletion.
 export function mergeResync(old: SubsIndex, fresh: SubsIndex, block: bigint) {
+  for (const k of old.removed) fresh.remove(k);
+  fresh.removed.clear();
   let kept = 0;
   for (const s of old.all())
     if (!fresh.get(s.key) && s.createdAt > block && fresh.add(s).ok) kept++;

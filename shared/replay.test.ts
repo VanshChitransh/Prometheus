@@ -51,19 +51,43 @@ test("chunk edges: one block, an exact 1,000-block span, and an empty range", as
   }
 });
 
-test("other errors are rethrown, not halved", async () => {
+test("other errors retry the same chunk a few times, then are rethrown, never halved", async () => {
   const err = new RpcError("eth_getLogs", 429, { cause: "rate limited" });
-  let calls = 0;
+  const spans: bigint[] = [];
   await assert.rejects(
     replayEntityRanges(
       0n,
       10n,
-      async () => (calls++, Promise.reject(err)),
+      async (a, b) => (spans.push(b - a), Promise.reject(err)),
       () => {},
+      { retryMs: 1 },
     ),
     err,
   );
-  assert.equal(calls, 1);
+  assert.deepEqual(spans, [10n, 10n, 10n, 10n]); // 1 try + 3 retries, same span
+});
+
+test("a transient error mid-replay retries that chunk, not the whole replay", async () => {
+  const seen: bigint[] = [];
+  let failedOnce = false;
+  await replayEntityRanges(
+    0n,
+    2_500n,
+    async (a, b) => {
+      if (a === 1_000n && !failedOnce) {
+        failedOnce = true;
+        throw new RpcError("eth_getLogs", 429, { cause: "rate limited" });
+      }
+      return Array.from(
+        { length: Number(b - a + 1n) },
+        (_, i) => a + BigInt(i),
+      );
+    },
+    (block) => void seen.push(block),
+    { retryMs: 1 },
+  );
+  assert.equal(seen.length, 2_501); // every block exactly once: blocks 0–999 weren't replayed again
+  assert.equal(new Set(seen).size, 2_501);
 });
 
 test("a capacity error at span 1 is rethrown instead of looping forever", async () => {
@@ -72,7 +96,7 @@ test("a capacity error at span 1 is rethrown instead of looping forever", async 
   };
   await assert.rejects(
     replayEntityRanges(0n, 0n, always, () => {}),
-    RpcError,
+    /block 0 alone exceeds the node's log capacity/,
   );
 });
 

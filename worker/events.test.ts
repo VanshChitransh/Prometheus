@@ -9,7 +9,11 @@ import { Targets } from "./expiry.ts";
 import { SubsIndex } from "./subs.ts";
 
 // No new_match subscriptions here: matching is covered in match.test.ts.
-const NO_FIRE = { receipts: { fire: async () => {} }, trustedWorkers: [] };
+const NO_FIRE = {
+  receipts: { fire: async () => "done" as const },
+  trustedWorkers: [],
+  retryBaseMs: 1,
+};
 
 const hex = (n: number, len = 64) =>
   `0x${n.toString(16).padStart(len, "0")}` as Hex;
@@ -100,6 +104,7 @@ function setup(o: { watched?: boolean; slow?: Promise<void> } = {}) {
     receipts: {
       fire: async (sub, subject, event, block, seen) => {
         fired.push({ sub: sub.key, subject, event, block, seen });
+        return "done" as const;
       },
     },
     trustedWorkers: [],
@@ -344,6 +349,7 @@ test("a match's fire waits outside the limiter, and its block still settles only
       fire: async () => {
         fires++;
         await held;
+        return "done" as const;
       },
     },
     trustedWorkers: [],
@@ -363,4 +369,294 @@ test("a match's fire waits outside the limiter, and its block still settles only
   assert.equal(settled, false); // but the checkpoint can't pass an unrecorded match
   release();
   await s;
+});
+
+test("a handler that fails is retried, and its block doesn't settle until it succeeds", async () => {
+  const subs = new SubsIndex();
+  let failures = 2;
+  const pub = {
+    request: async ({
+      method,
+      params,
+    }: {
+      method: string;
+      params: unknown[];
+    }) => {
+      if (method === "arkiv_getEntityCount") {
+        if (failures-- > 0) throw new Error("timeout"); // the "is it a subscription?" count
+        return 1;
+      }
+      return rpcSub(NEW_SUB, "new");
+    },
+  };
+  const d = createDispatch({
+    ...NO_FIRE,
+    pub: pub as never,
+    subs: () => subs,
+    targets: new Targets(),
+  });
+  d.onEvent({
+    ...created(NEW_SUB),
+    blockNumber: 10n,
+    transactionHash: hex(9),
+    logIndex: 0,
+  } as EntityEvent);
+  await d.settle(10n);
+  assert.ok(subs.get(NEW_SUB)); // not lost: the third attempt indexed it
+});
+
+test("a change receipt whose fire fails is retried until it's done (never offered again)", async () => {
+  const subs = new SubsIndex();
+  subs.add({ ...WATCHER, trigger: "changed", leadBlocks: undefined });
+  let calls = 0;
+  const d = createDispatch({
+    ...NO_FIRE,
+    pub: { request: async () => 0 } as never,
+    subs: () => subs,
+    targets: new Targets(),
+    receipts: { fire: async () => (++calls < 3 ? "failed" : "done") },
+  });
+  d.onEvent({
+    type: "EntityPatched",
+    entityKey: TARGET,
+    owner: OWNER,
+    blockNumber: 10n,
+    transactionHash: hex(9),
+    logIndex: 0,
+  } as EntityEvent);
+  await d.settle(10n);
+  assert.equal(calls, 3);
+});
+
+test("a persistent failure is dropped after the attempt cap, so the worker can't freeze", async () => {
+  let attempts = 0;
+  const d = createDispatch({
+    ...NO_FIRE,
+    pub: {
+      request: async () => {
+        attempts++;
+        throw new Error("rpc down");
+      },
+    } as never,
+    subs: () => new SubsIndex(),
+    targets: new Targets(),
+  });
+  d.onEvent({
+    ...created(OTHER),
+    blockNumber: 10n,
+    transactionHash: hex(9),
+    logIndex: 0,
+  } as EntityEvent);
+  await d.settle(10n);
+  assert.equal(attempts, 10);
+});
+
+test("a replayed created + extended for one target, arriving together, end at the extension (H3)", async () => {
+  const subs = new SubsIndex();
+  subs.add(WATCHER);
+  const targets = new Targets();
+  let release!: () => void;
+  const slow = new Promise<void>((r) => (release = r)); // the "is it a subscription?" count is slow
+  const d = createDispatch({
+    ...NO_FIRE,
+    pub: { request: async () => (await slow, 0) } as never,
+    subs: () => subs,
+    targets,
+  });
+  const ev = (e: Partial<EntityEvent>, i: number) =>
+    ({
+      blockNumber: 10n,
+      transactionHash: hex(9),
+      logIndex: i,
+      ...e,
+    }) as EntityEvent;
+  d.onEvent(ev(created(TARGET, 4_000n), 0));
+  d.onEvent(
+    ev(
+      {
+        type: "ExpiryExtended",
+        entityKey: TARGET,
+        owner: OWNER,
+        expiresAt: 6_000n,
+      },
+      1,
+    ),
+  );
+  release();
+  await d.settle(10n);
+  assert.equal(targets.get(TARGET)?.expiresAt, 6_000n); // not reset to the creation-time 4,000
+});
+
+test("a replayed created + deleted leaves no cache entry, so no false `expired` (H3)", async () => {
+  const subs = new SubsIndex();
+  subs.add(WATCHER);
+  const targets = new Targets();
+  const d = createDispatch({
+    ...NO_FIRE,
+    pub: { request: async () => 0 } as never,
+    subs: () => subs,
+    targets,
+  });
+  d.onEvent({
+    ...created(TARGET),
+    blockNumber: 10n,
+    transactionHash: hex(9),
+    logIndex: 0,
+  } as EntityEvent);
+  d.onEvent({
+    type: "EntityDeleted",
+    entityKey: TARGET,
+    owner: OWNER,
+    blockNumber: 10n,
+    transactionHash: hex(9),
+    logIndex: 1,
+  } as EntityEvent);
+  await d.settle(10n);
+  assert.equal(targets.get(TARGET), undefined);
+});
+
+test("a replayed created never resurrects a target already cached as gone (H3)", async () => {
+  const subs = new SubsIndex();
+  subs.add(WATCHER);
+  const targets = new Targets();
+  targets.set(TARGET, {
+    expiresAt: 3_000n,
+    creator: OWNER,
+    owner: OWNER,
+    flags: { readonly: false, permissionlessExtension: false },
+  });
+  targets.markGone(TARGET); // seeded at startup: expired while we were down
+  const d = createDispatch({
+    ...NO_FIRE,
+    pub: { request: async () => 0 } as never,
+    subs: () => subs,
+    targets,
+  });
+  await (d.onEvent({
+    ...created(TARGET),
+    blockNumber: 10n,
+    transactionHash: hex(9),
+    logIndex: 0,
+  } as EntityEvent),
+  d.settle(10n));
+  assert.equal(targets.get(TARGET)?.gone, true);
+});
+
+// A node whose subscription entity can be rewritten (a patch) between reads.
+function patchable(sub: ReturnType<typeof rpcSub> | null) {
+  const node = { sub, targetAlive: true };
+  const pub = {
+    request: async ({
+      method,
+      params,
+    }: {
+      method: string;
+      params: unknown[];
+    }) => {
+      if (method === "arkiv_getEntityCount") return 0;
+      if (params[0] === NEW_SUB) return node.sub;
+      return node.targetAlive ? rpcTarget : null;
+    },
+  };
+  return { node, pub: pub as never };
+}
+const patched = (k: Hex) =>
+  ({
+    type: "EntityPatched",
+    entityKey: k,
+    owner: OWNER,
+    blockNumber: 10n,
+    transactionHash: hex(9),
+    logIndex: 0,
+  }) as EntityEvent;
+
+test("a patched subscription is re-read, so its new fields take effect now (M1)", async () => {
+  const subs = new SubsIndex();
+  subs.add({ ...WATCHER, key: NEW_SUB, leadBlocks: 30n }); // being served, lead 30
+  const { node, pub } = patchable(rpcSub(NEW_SUB, "new"));
+  node.sub = {
+    ...rpcSub(NEW_SUB, "new"),
+    attributes: rpcSub(NEW_SUB).attributes.map((a) =>
+      a.name === "lead_blocks" ? { ...a, value: "600" } : a,
+    ),
+  }; // the owner patched lead_blocks to 600
+  const d = createDispatch({
+    ...NO_FIRE,
+    pub,
+    subs: () => subs,
+    targets: new Targets(),
+  });
+  d.onEvent(patched(NEW_SUB));
+  await d.settle(10n);
+  assert.equal(subs.get(NEW_SUB)?.leadBlocks, 600n); // A and B now agree on the trigger block
+});
+
+test("a patch that makes a subscription invalid removes it (M1)", async () => {
+  const subs = new SubsIndex();
+  const { node, pub } = patchable(rpcSub(NEW_SUB, "new"));
+  const d = createDispatch({
+    ...NO_FIRE,
+    pub,
+    subs: () => subs,
+    targets: new Targets(),
+  });
+  subs.add({ ...WATCHER, key: NEW_SUB });
+  node.sub = rpcSub(NEW_SUB); // the label is gone: invalid now
+  d.onEvent(patched(NEW_SUB));
+  await d.settle(10n);
+  assert.equal(subs.get(NEW_SUB), undefined);
+});
+
+test("a new expiring subscription on a target that doesn't exist is rejected (LLD §3.8)", async () => {
+  const subs = new SubsIndex();
+  const pub = {
+    request: async ({
+      method,
+      params,
+    }: {
+      method: string;
+      params: unknown[];
+    }) =>
+      method === "arkiv_getEntityCount"
+        ? 1
+        : params[0] === NEW_SUB
+          ? rpcSub(NEW_SUB, "new")
+          : null,
+  };
+  const d = createDispatch({
+    ...NO_FIRE,
+    pub: pub as never,
+    subs: () => subs,
+    targets: new Targets(),
+  });
+  d.onEvent({
+    ...created(NEW_SUB),
+    blockNumber: 10n,
+    transactionHash: hex(9),
+    logIndex: 0,
+  } as EntityEvent);
+  await d.settle(10n);
+  assert.equal(subs.get(NEW_SUB), undefined);
+});
+
+test("counts wait until the HTTP node has the event's block (M7)", async () => {
+  const subs = new SubsIndex();
+  const heads = [9n, 9n, 10n]; // the HTTP node trails the socket by a block, then catches up
+  let headAtCount = 0n;
+  let head = 0n;
+  const d = createDispatch({
+    ...NO_FIRE,
+    pub: { request: async () => ((headAtCount = head), 0) } as never,
+    subs: () => subs,
+    targets: new Targets(),
+    headNow: async () => (head = heads.shift() ?? 10n),
+  });
+  d.onEvent({
+    ...created(OTHER),
+    blockNumber: 10n,
+    transactionHash: hex(9),
+    logIndex: 0,
+  } as EntityEvent);
+  await d.settle(10n);
+  assert.equal(headAtCount, 10n); // counted only once the HTTP node had block 10
 });

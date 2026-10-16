@@ -55,6 +55,7 @@ async function run(subs: Sub[], count = (_q: string) => 1, owner = OWNER) {
         assert.equal(subject, ENTITY);
         assert.deepEqual(seen, { creator: owner, owner });
         fired.push(`${s.label}:${ev}@${block}`);
+        return "done" as const;
       },
     },
     workers: [WORKER],
@@ -96,4 +97,24 @@ test("counts run one at a time, so the dispatch limiter's cap holds for the node
   const r = await run([sub(1), sub(2), sub(3)]);
   assert.equal(r.peak, 1);
   assert.equal(r.fired.length, 3);
+});
+
+test("an expired subscription isn't evaluated", async () => {
+  const r = await run([sub(1, { expiresAt: 400n })]); // expired before block 500
+  assert.deepEqual(r.queries, []);
+});
+
+test("at most 50 new_match subscriptions are evaluated per event, oldest first", async () => {
+  const many = Array.from({ length: 60 }, (_, i) =>
+    sub(i + 1, { search: parseSearch({ eq: ["kind", { str: `k${i}` }] }) }),
+  );
+  const r = await run(many);
+  assert.equal(r.queries.length, 50);
+  assert.ok(r.queries.every((q) => !/k5[0-9]/.test(q))); // the 10 newest (k50–k59) were skipped
+});
+
+test("subscriptions with the same search share one count", async () => {
+  const r = await run([sub(1), sub(2), sub(3), sub(4), sub(5)]); // all the same search
+  assert.equal(r.queries.length, 1);
+  assert.equal(r.fired.length, 5);
 });

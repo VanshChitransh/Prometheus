@@ -44,7 +44,10 @@ const TRUSTED = `0x${"5".repeat(40)}` as Hex;
 // A fake chain: `landed` holds trigger ids with a receipt from a trusted worker; `forged` holds ids
 // with a receipt from some other wallet, which only a query without the $creator filter would count. The writer records batches;
 // `next` makes the next batch throw ("throw") or be refused ("refuse").
-async function fake(delayBlocks = 0) {
+async function fake(
+  delayBlocks = 0,
+  keeper?: ConstructorParameters<typeof Receipts>[0]["keeper"],
+) {
   const file = join(await mkdtemp(join(tmpdir(), "receipts-")), "pending.json");
   const f = {
     file,
@@ -54,7 +57,8 @@ async function fake(delayBlocks = 0) {
     failCount: false,
     batches: [] as Hex[][],
     fileDuringSend: "",
-    next: undefined as "throw" | "refuse" | undefined,
+    next: undefined as "throw" | "refuse" | "landThenThrow" | undefined,
+    refuseId: undefined as Hex | undefined, // refuse any batch holding this receipt
   };
   const pub = {
     request: async ({ params }: { params: [{ query: string }] }) => {
@@ -78,8 +82,23 @@ async function fake(delayBlocks = 0) {
       f.fileDuringSend = await readFile(file, "utf8");
       const outcome = f.next;
       f.next = undefined;
+      const ids = p.creates.map(
+        (c) =>
+          JSON.stringify(c.attributes.trigger_id).match(
+            /0x[0-9a-f]{64}/,
+          )![0] as Hex,
+      );
       if (outcome === "throw") throw new Error("network");
-      if (outcome === "refuse") return { ok: false, reason: "bad receipt" };
+      if (outcome === "landThenThrow") {
+        for (const id of ids) f.landed.add(id); // it went out; only the receipt wait failed
+        throw new Error("receipt wait timed out");
+      }
+      if (outcome === "refuse" || (f.refuseId && ids.includes(f.refuseId)))
+        return {
+          ok: false,
+          errorName: "InvalidValueType",
+          reason: "bad receipt",
+        };
       // The SDK's bytes32() value: { value: 0x… } (any shape works; we only count batches).
       f.batches.push(
         p.creates.map((c) => JSON.stringify(c.attributes.trigger_id) as Hex),
@@ -93,6 +112,7 @@ async function fake(delayBlocks = 0) {
     delayBlocks,
     file,
     trustedWorkers: [TRUSTED],
+    keeper,
   });
   return { f, r };
 }
@@ -102,7 +122,7 @@ test("20 fire() calls for one trigger while B waits → exactly 1 receipt queued
   r.onHead(100n);
   for (let i = 0; i < 20; i++) void r.fire(SUB, TARGET, "warned", 100n);
   r.onHead(114n);
-  await until(() => true, "a turn");
+  await new Promise((res) => setTimeout(res, 20)); // a real wait: every fire has had its turns
   assert.equal(r.queued, 0); // B still waiting
   assert.equal(f.counts, 0);
   r.onHead(115n);
@@ -184,18 +204,37 @@ test("a batch that throws is requeued and retried after the backoff", async () =
   }
 });
 
-test("a refused batch is dropped and logged; later receipts still go out", async () => {
+test("a refused batch is resent one at a time, so only the malformed receipt is dropped", async () => {
   const { f, r } = await fake();
   r.onHead(1_000n);
   for (let b = 1n; b <= 10n; b++) await r.fire(SUB, TARGET, "warned", b);
-  f.next = "refuse";
-  r.onHead(1_001n);
-  await until(() => r.queued === 0 && f.fileDuringSend !== "", "the drop");
-  await new Promise((res) => setTimeout(res, 20));
-  for (let b = 11n; b <= 20n; b++) await r.fire(SUB, TARGET, "warned", b);
-  r.onHead(1_010n);
-  await until(() => f.batches.length === 1, "the next flush");
-  assert.equal(f.batches[0]!.length, 10);
+  f.refuseId = idFor(3n); // one bad receipt in the batch
+  for (let h = 1_001n; f.batches.flat().length < 9 && h < 1_200n; h += 5n) {
+    r.onHead(h);
+    await new Promise((res) => setTimeout(res, 15));
+  }
+  assert.equal(f.batches.flat().length, 9); // the 9 good ones landed, one per transaction
+  assert.equal(r.queued, 0);
+});
+
+test("a send that threw after it went out isn't written twice", async () => {
+  mock.timers.enable({ apis: ["Date"] });
+  try {
+    const { f, r } = await fake();
+    r.onHead(1_000n);
+    for (let b = 1n; b <= 10n; b++) await r.fire(SUB, TARGET, "warned", b);
+    f.next = "landThenThrow";
+    r.onHead(1_001n);
+    await until(() => r.queued === 10 && f.landed.size === 10, "the requeue");
+    await new Promise((res) => setTimeout(res, 20));
+    mock.timers.tick(1_000);
+    r.onHead(1_010n);
+    await until(() => r.queued === 0, "the recheck");
+    await new Promise((res) => setTimeout(res, 20));
+    assert.equal(f.batches.length, 0); // every one was already on chain: nothing resent
+  } finally {
+    mock.timers.reset();
+  }
 });
 
 test("resume() requeues only the receipts that never landed", async () => {
@@ -234,4 +273,97 @@ test("a seeded day count (restored after a restart) still caps the subscription"
   await r.fire(SUB, TARGET, "warned", 1n);
   await r.fire(SUB, TARGET, "warned", 2n);
   assert.equal(r.queued, 1); // 19 + 1 = maxPerDay
+});
+
+test("a keep trigger goes to the keeper; a skip is queued with its note, kept is not re-queued", async () => {
+  const calls: Hex[] = [];
+  const skipped = await fake(0, {
+    keep: async (k) => {
+      calls.push(k.id);
+      return {
+        event: "keep_skipped",
+        note: "deny_listed",
+        seen: { creator: TRUSTED, owner: TRUSTED },
+      };
+    },
+  });
+  skipped.r.onHead(1_000n);
+  await skipped.r.fire(SUB, TARGET, "keep", 970n);
+  await skipped.r.fire(SUB, TARGET, "keep", 970n); // fired: the keeper isn't asked twice
+  assert.equal(calls.length, 1);
+  assert.equal(skipped.r.queued, 1);
+  skipped.r.onHead(1_010n);
+  await until(() => skipped.f.batches.length === 1, "the flush");
+
+  const kept = await fake(0, { keep: async () => undefined }); // receipt already in the extend tx
+  kept.r.onHead(1_000n);
+  await kept.r.fire(SUB, TARGET, "keep", 970n);
+  assert.equal(kept.r.queued, 0);
+});
+
+test("a keep trigger with no keeper configured fails loudly and stays unfired", async () => {
+  const { r } = await fake();
+  r.onHead(1_000n);
+  assert.equal(await r.fire(SUB, TARGET, "keep", 970n), "failed");
+  assert.equal(await r.fire(SUB, TARGET, "keep", 970n), "failed"); // tried again, not "done"
+  assert.equal(r.queued, 0);
+});
+
+test("keeps don't use max_per_day slots (skipping one would let the target lapse)", async () => {
+  let calls = 0;
+  const { r } = await fake(0, { keep: async () => (calls++, undefined) });
+  r.seedDayCount(SUB.key, 20); // the alert cap is full
+  r.onHead(1_000n);
+  await r.fire(SUB, TARGET, "keep", 970n);
+  assert.equal(calls, 1);
+  await r.fire(SUB, TARGET, "warned", 970n); // alerts are still capped
+  assert.equal(r.queued, 0);
+});
+
+test("a keep outcome with retry writes its receipt but stays unfired", async () => {
+  let calls = 0;
+  const { r } = await fake(0, {
+    keep: async () =>
+      ++calls === 1
+        ? { event: "keeper_low_funds", retry: true, id: hex(77) }
+        : undefined,
+  });
+  r.onHead(1_000n);
+  await r.fire(SUB, TARGET, "keep", 970n);
+  assert.equal(r.queued, 1); // the low-funds notice
+  await r.fire(SUB, TARGET, "keep", 970n); // offered again, now funded
+  assert.equal(calls, 2);
+});
+
+test("100 concurrent fires on a sub capped at 20 queue exactly 20 (H4)", async () => {
+  const { r } = await fake();
+  r.onHead(1_000n);
+  await Promise.all(
+    Array.from({ length: 100 }, (_, i) =>
+      r.fire(SUB, TARGET, "matched", BigInt(i + 1)),
+    ),
+  );
+  assert.equal(r.queued, 20);
+});
+
+test("fire() reports done only once the receipt is in the pending file", async () => {
+  const { f, r } = await fake();
+  r.onHead(1_000n);
+  assert.equal(await r.fire(SUB, TARGET, "warned", 970n), "done");
+  // no wait: the checkpoint may pass this block right now, so the receipt must already be on disk
+  assert.equal(JSON.parse(await readFile(f.file, "utf8")).length, 1);
+});
+
+test("a bad trigger (negative block) is skipped, never thrown at a fire-and-forget caller", async () => {
+  const { r } = await fake();
+  assert.equal(await r.fire(SUB, TARGET, "warned", -5n), "skipped");
+});
+
+test("close() flushes what's queued, for a graceful shutdown", async () => {
+  const { f, r } = await fake();
+  r.onHead(1_000n);
+  for (let b = 1n; b <= 3n; b++) await r.fire(SUB, TARGET, "warned", b);
+  assert.equal(f.batches.length, 0); // below the flush threshold, no head since
+  await r.close();
+  assert.equal(f.batches.length, 1);
 });

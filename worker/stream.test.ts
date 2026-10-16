@@ -25,8 +25,9 @@ const logged = (tx: number, block: bigint) => ({
 });
 
 // Fake WebSocket streams and HTTP node. `replayGate` holds getLogs until released; `failLogs`
-// makes the next getLogs throw.
-function fake(logs: ReturnType<typeof logged>[] = []) {
+// makes the next getLogs throw. Like the real socket, a subscription's first head arrives just after
+// subscribing (setImmediate) unless `autoHead` is off; `httpHeads` scripts the HTTP node's answers.
+function fake(logs: ReturnType<typeof logged>[] = [], autoHead = true) {
   let release!: () => void;
   const f = {
     head: 105n,
@@ -34,7 +35,7 @@ function fake(logs: ReturnType<typeof logged>[] = []) {
     unwatches: 0,
     checkpoint: 100n, // follows onHead, like the worker's
     checkpointReads: 0,
-    failLogs: false,
+    failLogs: 0, // how many getLogs calls fail next
     replayGate: new Promise<void>((r) => (release = r)),
     release: () => release(),
     pushEvent: (_e: EntityEvent) => {},
@@ -42,6 +43,8 @@ function fake(logs: ReturnType<typeof logged>[] = []) {
     dropSocket: () => {},
     delivered: [] as string[],
     heads: [] as bigint[],
+    httpHeads: [] as bigint[],
+    rawHeads: [] as bigint[],
   };
   const stop = startStream({
     ws: {
@@ -63,11 +66,12 @@ function fake(logs: ReturnType<typeof logged>[] = []) {
         onBlockNumber: (n: bigint) => void;
       }) => {
         f.pushHead = onBlockNumber;
+        if (autoHead) setImmediate(() => onBlockNumber(f.head));
         return () => {};
       },
     } as never,
     http: {
-      getBlockNumber: async () => f.head,
+      getBlockNumber: async () => f.httpHeads.shift() ?? f.head,
       getLogs: async ({
         fromBlock,
         toBlock,
@@ -76,8 +80,8 @@ function fake(logs: ReturnType<typeof logged>[] = []) {
         toBlock: bigint;
       }) => {
         await f.replayGate;
-        if (f.failLogs) {
-          f.failLogs = false;
+        if (f.failLogs > 0) {
+          f.failLogs--;
           throw new Error("node down");
         }
         return logs.filter(
@@ -92,6 +96,7 @@ function fake(logs: ReturnType<typeof logged>[] = []) {
       f.heads.push(n);
       f.checkpoint = n - 1n;
     },
+    onRawHead: (n) => f.rawHeads.push(n),
   });
   return { f, stop };
 }
@@ -134,19 +139,35 @@ test("no head for 15 s → unwatch, resubscribe, replay from the checkpoint agai
   }
 });
 
-test("a failed catch-up retries after 5 s instead of buffering forever", async () => {
+test("one failed getLogs is retried inside the catch-up; only a persistent one reconnects", async () => {
   mock.timers.enable({ apis: ["setTimeout"] });
   try {
+    const once = fake();
+    once.f.failLogs = 1;
+    once.f.release();
+    await flush();
+    mock.timers.tick(1_000); // the chunk's first retry
+    await flush();
+    assert.equal(once.f.watches, 1); // same connect: the replay didn't restart
+    assert.deepEqual(once.f.heads, [105n]);
+    once.stop();
+
     const { f, stop } = fake();
-    f.failLogs = true;
+    f.failLogs = 4; // 1 try + 3 retries all fail
     f.release();
     await flush();
+    f.head = 106n;
     f.pushHead(106n); // heads keep the stall timer quiet, so only the retry can recover
-    assert.deepEqual(f.heads, []);
-    mock.timers.tick(5_000);
+    for (const ms of [1_000, 2_000, 4_000]) {
+      mock.timers.tick(ms);
+      await flush();
+    }
+    assert.deepEqual(f.heads, []); // still buffering: the checkpoint can't pass the hole
+    mock.timers.tick(5_000); // catch-up failed → reconnect
+    await flush();
     await flush();
     assert.equal(f.watches, 2);
-    assert.deepEqual(f.heads, [106n]); // caught up on the retry
+    assert.deepEqual(f.heads, [106n]); // caught up on the reconnect
     stop();
   } finally {
     mock.timers.reset();
@@ -172,4 +193,29 @@ test("a socket error freezes the checkpoint and replays the gap viem doesn't bac
   } finally {
     mock.timers.reset();
   }
+});
+
+test("the replay waits for the socket's first head, even when the HTTP node trails it", async () => {
+  // The logs subscription isn't live until the socket's first head (viem subscribes asynchronously).
+  // Meanwhile block 106 is produced, and its event never reaches the socket. Reading the HTTP head
+  // first (105) and replaying only to it lost that event for good.
+  const { f, stop } = fake([logged(7, 106n)], false);
+  f.release();
+  f.httpHeads.push(105n); // the HTTP node is a block behind at first
+  await flush();
+  f.head = 106n;
+  f.pushHead(106n); // the subscription is live now: replay must reach at least 106
+  await new Promise((r) => setTimeout(r, 700));
+  assert.deepEqual(f.delivered, ["7@106"]);
+  stop();
+});
+
+test("raw heads keep flowing while catching up (they drive the receipt flush)", async () => {
+  const { f, stop } = fake([logged(1, 103n)]);
+  await flush(); // the first head arrives; the replay is still held
+  f.pushHead(106n);
+  assert.deepEqual(f.heads, []); // the checkpoint waits for the replay...
+  assert.deepEqual(f.rawHeads, [105n, 106n]); // ...the flush clock doesn't
+  f.release();
+  stop();
 });

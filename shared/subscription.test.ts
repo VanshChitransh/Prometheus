@@ -43,7 +43,7 @@ const valid: Record<string, RawEntity> = {
     trigger: "keep",
     target_key: TARGET,
     lead_blocks: 60n,
-    keep_blocks: 1_000n,
+    keep_blocks: 2_000n,
   }),
   new_match: entity(
     { trigger: "new_match" },
@@ -80,7 +80,7 @@ const keep = {
   trigger: "keep",
   target_key: TARGET,
   lead_blocks: 60n,
-  keep_blocks: 1_000n,
+  keep_blocks: 2_000n,
 };
 // One rejection per rule: [name, entity, expected reason].
 const rejected: [string, RawEntity, RegExp][] = [
@@ -143,6 +143,11 @@ const rejected: [string, RawEntity, RegExp][] = [
     "keep_blocks < lead",
     entity({ ...keep, keep_blocks: 30n }),
     /greater than lead_blocks/,
+  ],
+  [
+    "keep_blocks < 1 hour",
+    entity({ ...keep, keep_blocks: 1_799n }),
+    /at least 1,800 \(1 hour\)/,
   ],
   [
     "keep_blocks > 30 days",

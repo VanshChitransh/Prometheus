@@ -13,6 +13,8 @@ import { freeCount, trustedFilter } from "../shared/arkiv.ts";
 import { PROJECT, type Event } from "../shared/schema.ts";
 import type { Sub } from "../shared/subscription.ts";
 import { triggerId } from "../shared/triggerId.ts";
+import type { Keeper } from "./keeper.ts";
+import { inBatches } from "./limit.ts";
 import type { Writer } from "./writer.ts";
 
 const FLUSH_AT = 10; // receipts
@@ -33,10 +35,20 @@ export type Receipt = {
   doneBlock: bigint;
   targetCreator?: Hex;
   targetOwner?: Hex;
+  note?: string; // why a keep was skipped or failed
 };
 
 // The target as last seen; pins which entity was watched if one is re-created under the same name.
 export type Seen = { creator: Hex; owner: Hex };
+
+// done = acted, or someone already did; skipped = not this call's job (in flight elsewhere, or over
+// the daily cap); failed = an error or a "try again" outcome: the trigger isn't marked done.
+export type FireResult = "done" | "skipped" | "failed";
+
+// For callers whose trigger is never offered again (changed, new_match): throw so they retry.
+export function throwIfFailed(results: FireResult[]) {
+  if (results.includes("failed")) throw new Error("a receipt fire failed");
+}
 
 const utcDay = () => new Date().toISOString().slice(0, 10);
 
@@ -46,6 +58,7 @@ export class Receipts {
   readonly #delay: bigint;
   readonly #file: string;
   readonly #trusted: string; // the $creator filter for every receipt count
+  readonly #keeper?: Pick<Keeper, "keep">;
   // ponytail: one id per trigger, never pruned; fine at hundreds a day, prune by trigger block if
   // it ever reaches millions. Rebuilt from receipts on restart (T2.8).
   readonly #fired = new Set<Hex>(); // done here or found on chain (fast path; the truth is on Arkiv)
@@ -60,6 +73,8 @@ export class Receipts {
   #backoffMs = 0;
   #retryAt = 0;
   #saving = Promise.resolve();
+  #solo = 0; // receipts at the queue's head to send one per tx: a refused batch is being bisected
+  #recheck = false; // the last send threw but may have landed: filter before resending
 
   constructor(o: {
     writer: Writer;
@@ -67,64 +82,128 @@ export class Receipts {
     delayBlocks: number;
     file: string;
     trustedWorkers: Hex[];
+    keeper?: Pick<Keeper, "keep">; // acts on "keep" triggers (T2.11)
   }) {
     this.#writer = o.writer;
     this.#pub = o.pub;
     this.#delay = BigInt(o.delayBlocks);
     this.#file = o.file;
     this.#trusted = trustedFilter(o.trustedWorkers);
+    this.#keeper = o.keeper;
   }
 
   get queued() {
     return this.#pending.length;
   }
 
-  // Safe to call on every head while a condition holds: a trigger acts once. Never throws.
+  // Safe to call on every head while a condition holds: a trigger acts once. Never throws; reports
+  // a FireResult instead, so event-driven callers can retry what an expiry would re-offer itself.
+  // "keep" goes to the keeper, which writes its own receipt: `kept` atomically with the extension,
+  // or a skip/failure outcome that's queued here like any other receipt.
   async fire(
     sub: Sub,
     subject: Hex,
-    event: Event,
+    event: Event | "keep",
     triggerBlock: bigint,
     seen?: Seen,
-  ) {
-    const id = triggerId({
-      subscription: sub.key,
-      subject,
-      event,
-      triggerBlock,
-    });
-    if (this.#fired.has(id) || this.#inFlight.has(id) || this.#overCap(sub))
-      return;
+  ): Promise<FireResult> {
+    let id: Hex;
+    try {
+      id = triggerId({ subscription: sub.key, subject, event, triggerBlock });
+    } catch (e) {
+      // e.g. a negative block (expiry before lead_blocks, possible on a freshly wiped chain): not a
+      // trigger anyone can act on. Must not throw: callers fire-and-forget.
+      console.error(`[receipts] bad trigger for ${sub.key}:`, e);
+      return "skipped";
+    }
+    // max_per_day caps alerts; a keep isn't an alert, and skipping one would let the target lapse.
+    // Keeps have their own global budget in the keeper.
+    if (this.#fired.has(id)) return "done";
+    if (this.#inFlight.has(id) || (event !== "keep" && this.#overCap(sub)))
+      return "skipped";
     // Claim before any await, or every call during B's 15-block wait would pass the checks above.
+    // The day slot too: counted only after the awaits, 100 concurrent fires all passed the cap (H4).
     this.#inFlight.add(id);
+    const counted = event !== "keep";
+    if (counted) this.#countToday(sub.key, 1);
     try {
       while (this.#head < triggerBlock + this.#delay) await this.#tick.promise;
       if (await this.#landed(id)) {
-        this.#fired.add(id); // the other worker already acted
-        return;
+        this.#fired.add(id); // the other worker already acted (its receipt counts on restart)
+        if (counted) this.#countToday(sub.key, -1);
+        return "done";
       }
-      this.#pending.push({
-        id,
-        subscription: sub.key,
-        subject,
-        event,
-        triggerBlock,
-        doneBlock: this.#head,
-        targetCreator: seen?.creator,
-        targetOwner: seen?.owner,
-      });
-      void this.#save();
-      this.#countToday(sub.key);
+      let receipt:
+        | Omit<Receipt, "id" | "subscription" | "subject" | "triggerBlock">
+        | undefined;
+      if (event !== "keep")
+        receipt = {
+          event,
+          doneBlock: this.#head,
+          targetCreator: seen?.creator,
+          targetOwner: seen?.owner,
+        };
+      else {
+        if (!this.#keeper) throw new Error("no keeper configured");
+        const out = await this.#keeper.keep({
+          sub,
+          target: subject,
+          id,
+          triggerBlock,
+          head: this.#head,
+        });
+        // undefined: kept, and the extension's own transaction already wrote the receipt.
+        if (out?.event)
+          receipt = {
+            event: out.event,
+            note: out.note,
+            doneBlock: this.#head,
+            targetCreator: out.seen?.creator,
+            targetOwner: out.seen?.owner,
+          };
+        if (out?.retry) {
+          if (receipt)
+            await this.#queue({
+              id: out.id ?? id,
+              subscription: sub.key,
+              subject,
+              triggerBlock,
+              ...receipt,
+            });
+          return "failed"; // not done: offered again on the next head (e.g. after a refill)
+        }
+      }
+      // Awaited: "done" lets the block settle and the checkpoint pass it, so the receipt must be on
+      // disk first, or a crash in between loses a change/match receipt for good (audit).
+      if (receipt)
+        await this.#queue({
+          id,
+          subscription: sub.key,
+          subject,
+          triggerBlock,
+          ...receipt,
+        });
       // Only on success: marking it in `finally` would make one transient RPC error lose the alert.
       this.#fired.add(id);
+      return "done";
     } catch (e) {
-      console.error(
-        `[receipts] ${event} for ${sub.key} failed; retrying on a later head:`,
-        e,
-      );
+      console.error(`[receipts] ${event} for ${sub.key} failed:`, e);
+      if (counted) this.#countToday(sub.key, -1); // give the slot back: it's tried again
+      return "failed";
     } finally {
       this.#inFlight.delete(id);
     }
+  }
+
+  #queue(r: Receipt) {
+    this.#pending.push(r);
+    return this.#save();
+  }
+
+  // Graceful shutdown: one last flush attempt, then wait for the pending file to be written.
+  async close() {
+    if (this.#pending.length > 0) await this.#flush();
+    await this.#saving;
   }
 
   onHead(head: bigint) {
@@ -155,7 +234,11 @@ export class Receipts {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") return;
       throw e; // a corrupt file must be looked at, not silently dropped with its receipts
     }
-    const landed = await Promise.all(saved.map((r) => this.#landed(r.id)));
+    // Batched (an outage can leave thousands), and a failed check keeps the receipt: a possible
+    // duplicate is better than a lost alert, or a crash loop at startup.
+    const landed = await inBatches(saved, (r) =>
+      this.#landed(r.id).catch(() => false),
+    );
     this.#pending = saved.filter((_, i) => !landed[i]);
     for (const r of saved) this.#fired.add(r.id);
     console.log(
@@ -167,40 +250,64 @@ export class Receipts {
   async #flush() {
     if (this.#flushing || Date.now() < this.#retryAt) return;
     this.#flushing = true;
-    const batch = this.#pending.splice(0, BATCH_MAX);
+    const solo = this.#solo > 0;
+    let batch = this.#pending.splice(0, solo ? 1 : BATCH_MAX);
     this.#sending = batch;
     try {
-      await this.#save(); // before sending, so a crash mid-send leaves them for resume()
-      let r;
-      try {
-        r = await this.#writer.batch({ creates: batch.map(toCreate) });
-      } catch (e) {
-        this.#pending.unshift(...batch);
-        this.#backoffMs = Math.min(
-          this.#backoffMs * 2 || BACKOFF_MIN_MS,
-          BACKOFF_MAX_MS,
-        );
-        this.#retryAt = Date.now() + this.#backoffMs;
-        console.error(
-          `[receipts] flush of ${batch.length} failed; retry in ${this.#backoffMs / 1000}s:`,
-          e,
-        );
-        return;
+      if (this.#recheck) {
+        // The last send threw after it may have gone out (e.g. its receipt wait timed out):
+        // anything that landed must not be written twice.
+        const landed = await this.#landedAll(batch);
+        batch = batch.filter((_, i) => !landed[i]);
+        this.#sending = batch;
+        this.#recheck = false;
       }
-      // Refused: the chain rejected the receipts themselves. Resending can't fix a malformed
-      // receipt and would block every receipt behind it, so drop the batch and say so loudly.
-      if (!r.ok)
-        console.error(
-          `[receipts] chain refused ${batch.length} receipts, dropped: ${r.reason}`,
-          batch.map((b) => b.id),
-        );
+      if (batch.length > 0) {
+        await this.#save(); // before sending, so a crash mid-send leaves them for resume()
+        const r = await this.#writer.batch({
+          creates: batch.map(receiptCreate),
+        });
+        if (!r.ok && batch.length > 1) {
+          // One malformed receipt refuses the whole batch. Resend one per tx, so only it is lost.
+          this.#pending.unshift(...batch);
+          this.#solo = batch.length;
+          console.warn(
+            `[receipts] chain refused a batch of ${batch.length} (${r.errorName}); resending one at a time`,
+          );
+          return;
+        }
+        // A refused single receipt is our bug (the engine named what's wrong): resending can't fix
+        // it and would block the queue, so drop it and say so loudly.
+        if (!r.ok)
+          console.error(
+            `[receipts] chain refused receipt ${batch[0]!.id}, dropped: ${r.reason}`,
+          );
+      }
+      if (solo) this.#solo--;
       this.#backoffMs = 0;
       this.#lastFlush = this.#head;
+    } catch (e) {
+      // Network trouble (or a failed recheck): requeue, back off, and recheck before resending.
+      this.#pending.unshift(...batch);
+      this.#recheck = true;
+      this.#backoffMs = Math.min(
+        this.#backoffMs * 2 || BACKOFF_MIN_MS,
+        BACKOFF_MAX_MS,
+      );
+      this.#retryAt = Date.now() + this.#backoffMs;
+      console.error(
+        `[receipts] flush of ${batch.length} failed; retry in ${this.#backoffMs / 1000}s:`,
+        e,
+      );
     } finally {
       this.#sending = [];
       this.#flushing = false;
       void this.#save();
     }
+  }
+
+  #landedAll(rs: Receipt[]) {
+    return inBatches(rs, (r) => this.#landed(r.id));
   }
 
   // The file mirrors the outbox (sending + pending). Writes are chained so two never race on the
@@ -242,16 +349,19 @@ export class Receipts {
     return c?.day === utcDay() && c.n >= sub.maxPerDay;
   }
 
-  #countToday(subKey: Hex) {
+  #countToday(subKey: Hex, delta: 1 | -1) {
     const day = utcDay();
     const c = this.#dayCount.get(subKey);
-    this.#dayCount.set(subKey, { day, n: c?.day === day ? c.n + 1 : 1 });
+    const n = (c?.day === day ? c.n : 0) + delta;
+    this.#dayCount.set(subKey, { day, n: Math.max(0, n) });
   }
 }
 
-const toCreate = (r: Receipt): CreateEntityParameters => ({
+// Every receipt is built here, including the keeper's atomic `kept` one (LLD §2.3).
+export const receiptCreate = (r: Receipt): CreateEntityParameters => ({
   payload: jsonToPayload({
     v: 1,
+    note: r.note,
     target_creator: r.targetCreator,
     target_owner: r.targetOwner,
   }),

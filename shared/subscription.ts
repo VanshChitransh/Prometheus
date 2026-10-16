@@ -92,6 +92,10 @@ function decode(e: RawEntity): Sub {
   // Each extension must outrun the lead, or the target is "about to expire" again at once.
   if (trigger === "keep" && keep! <= lead!)
     fail("keep_blocks must be greater than lead_blocks");
+  if (trigger === "keep" && keep! < BOUNDS.keepBlocksMin)
+    fail(
+      `keep_blocks must be at least ${BOUNDS.keepBlocksMin.toLocaleString("en")} (1 hour)`,
+    );
 
   const perDay = u64("max_per_day", false) ?? BigInt(BOUNDS.maxPerDay.default);
   if (perDay < 1n || perDay > BOUNDS.maxPerDay.max)

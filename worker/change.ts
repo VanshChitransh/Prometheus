@@ -3,7 +3,7 @@
 import type { Hex } from "viem";
 import type { Sub } from "../shared/subscription.ts";
 import type { Later } from "./match.ts";
-import type { Receipts, Seen } from "./receipts.ts";
+import { throwIfFailed, type Receipts, type Seen } from "./receipts.ts";
 
 // Returns the fires as a Later, like matchCreated: worker B's delay_blocks wait mustn't hold a
 // dispatch slot, and the block settles only after them, since a change event is never offered again.
@@ -16,12 +16,16 @@ export function fireChanged(o: {
   seen?: Seen;
   receipts: Pick<Receipts, "fire">;
 }): Later | undefined {
-  const watching = o.subs.filter((s) => s.trigger === "changed");
+  // A subscription that expired by this block no longer asks (it lingers until the hourly re-sync).
+  const watching = o.subs.filter(
+    (s) => s.trigger === "changed" && s.expiresAt > o.block,
+  );
   if (watching.length === 0) return;
+  // A change is never offered again, so a failed fire throws and the dispatcher retries the Later.
   return () =>
     Promise.all(
       watching.map((sub) =>
         o.receipts.fire(sub, o.subject, o.event, o.block, o.seen),
       ),
-    );
+    ).then(throwIfFailed);
 }

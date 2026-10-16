@@ -38,12 +38,13 @@ function fake() {
   return { f, writer: new Writer(wallet as never) };
 }
 
+// A revert the SDK decoded to a named engine error: what a real refused write looks like.
 const revert = () =>
   new EntityMutationError("Transaction failed: entity expired", {
-    cause: new ContractFunctionRevertedError({
-      abi: [],
-      functionName: "execute",
-    }),
+    cause: Object.assign(
+      new ContractFunctionRevertedError({ abi: [], functionName: "execute" }),
+      { data: { errorName: "EntityExpired", args: [] } },
+    ),
   });
 
 test("concurrent writes go out one at a time with nonces n, n+1, n+2", async () => {
@@ -79,9 +80,26 @@ test("a revert returns a reason, isn't retried, and doesn't block the queue", as
   ]);
   assert.deepEqual(bad, {
     ok: false,
+    errorName: "EntityExpired",
     reason: "Transaction failed: entity expired",
   });
   assert.ok(good.ok);
   assert.deepEqual(f.sent, [5, 5]); // one attempt each; the second re-read the nonce
+  assert.equal(f.reads, 2);
+});
+
+test("an undecoded 'revert' (viem's mapping of -32603) is infrastructure: it throws, not ok:false", async () => {
+  const { f, writer } = fake();
+  f.failNext.push(
+    new EntityMutationError("Transaction failed", {
+      cause: new ContractFunctionRevertedError({
+        abi: [],
+        functionName: "execute",
+        message: "upstream timeout",
+      }),
+    }),
+  );
+  await assert.rejects(writer.create({} as never), /Transaction failed/);
+  await writer.create({} as never); // and the next write re-reads the nonce
   assert.equal(f.reads, 2);
 });
