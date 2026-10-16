@@ -26,8 +26,22 @@ export function createDispatch(o: {
   receipts: Pick<Receipts, "fire">;
   trustedWorkers: readonly Hex[];
   retryBaseMs?: number; // first backoff step; tests shrink it
+  // The HTTP node's head. Free counts read the HTTP node, which can trail the socket that delivered
+  // the event, so a count for a just-created entity could say 0 (audit M7); counts can't be pinned
+  // to a block (arkiv_getEntityCount ignores atBlock, measured 17 Oct). index.ts wires it; without it
+  // the wait is skipped. Known limit: a replayed event is counted against the current state.
+  headNow?: () => Promise<bigint>;
 }) {
   const retryBaseMs = o.retryBaseMs ?? 1_000;
+  let httpHead = 0n;
+  // Waits (≤ ~5 s) until the HTTP node has the event's block; one head read per block, not per event.
+  async function caughtUp(block: bigint) {
+    if (!o.headNow) return;
+    for (let i = 0; httpHead < block && i < 10; i++) {
+      if (i > 0) await new Promise((r) => setTimeout(r, 500));
+      httpHead = await o.headNow();
+    }
+  }
   const { pub, subs, targets, receipts } = o;
   const blocks = new Map<bigint, Promise<void>[]>();
   // A catch-up replays thousands of events at once; unbounded, each EntityCreated's free count hit
@@ -59,13 +73,16 @@ export function createDispatch(o: {
     }
   }
 
-  // Same path as discovery: a free raw read, decoded exactly as the web form decodes it.
+  // Same path as discovery: a free raw read, decoded exactly as the web form decodes it. Also used
+  // when a subscription is patched: its fields may have changed, or it may no longer be valid.
   async function addSubscription(key: Hex) {
     const raw = await rawGetEntity(pub, key);
-    if (!raw) return; // deleted or expired already
+    if (!raw) return void subs().remove(key); // deleted or expired already
     const d = decodeSubscription(raw);
-    if (!d.ok)
+    if (!d.ok) {
+      subs().remove(key); // a patch can make a served subscription invalid
       return console.warn(`[events] subscription ${key} rejected: ${d.reason}`);
+    }
     const r = subs().add(d.sub);
     if (!r.ok)
       return console.warn(`[events] subscription ${key} rejected: ${r.reason}`);
@@ -74,10 +91,15 @@ export function createDispatch(o: {
         `[events] subscription ${r.evicted.key} evicted: ${key} is older`,
       );
     const target = d.sub.targetKey;
-    if (target && !targets.get(target) && !(await targets.seed(pub, target)))
-      console.warn(
-        `[events] subscription ${key} watches ${target}, already gone`,
-      );
+    if (target && !targets.get(target) && !(await targets.seed(pub, target))) {
+      // LLD §3.8: the target must exist, except for `expired` (it may already have lapsed).
+      if (d.sub.trigger !== "expired") {
+        subs().remove(key);
+        return console.warn(
+          `[events] subscription ${key} rejected: its target ${target} doesn't exist`,
+        );
+      }
+    }
     console.log(`[events] subscription ${key} added (${d.sub.trigger})`);
   }
 
@@ -121,6 +143,7 @@ export function createDispatch(o: {
           });
         return {
           rpc: async () => {
+            await caughtUp(e.blockNumber);
             // Free count first: ~1 event/s chain-wide, and almost none are our subscriptions. The
             // node insists on typed hex literals, so key(…), not a bare 0x… (measured 17 Oct).
             const q = `project = str('${PROJECT}') AND kind = str('subscription') AND $key = key(${k})`;
@@ -142,7 +165,11 @@ export function createDispatch(o: {
         return {};
       }
       case "EntityPatched":
-        return { later: changed(k, "patched", e.blockNumber) };
+        return {
+          later: changed(k, "patched", e.blockNumber),
+          // A patched subscription: re-read it, so A and B never serve different fields (audit M1).
+          rpc: subs().get(k) ? () => addSubscription(k) : undefined,
+        };
       case "OwnershipTransferred":
         // The SDK decodes topics[2] = previous, topics[3] = new; the receipt pins the new owner.
         targets.transfer(k, e.newOwner);
@@ -165,10 +192,11 @@ export function createDispatch(o: {
       const what = `${e.type} ${e.entityKey}`;
       const step = apply(e);
       const done = (async () => {
-        const later = step.rpc
+        const fromRpc = step.rpc
           ? await retrying(what, () => limited(step.rpc!))
-          : step.later;
-        if (later) await retrying(`${what} receipts`, later);
+          : undefined;
+        for (const later of [step.later, fromRpc])
+          if (later) await retrying(`${what} receipts`, later);
       })();
       const list = blocks.get(e.blockNumber);
       if (list) list.push(done);

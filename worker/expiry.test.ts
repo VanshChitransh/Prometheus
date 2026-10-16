@@ -178,3 +178,10 @@ test("an event that lands during a slow seed read wins over the read", async () 
   assert.equal(await seeding, true);
   assert.equal(targets.get(TARGET)?.expiresAt, 2_000n); // the newer event stays
 });
+
+test("an expired subscription no longer fires (it lingers until the hourly re-sync)", () => {
+  const { targets } = setup();
+  const subs = new SubsIndex();
+  subs.add(sub(4, { expiresAt: 960n }));
+  assert.deepEqual(events(dueTriggers(970n, targets, subs)), []);
+});

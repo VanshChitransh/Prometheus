@@ -111,6 +111,9 @@ export function dueTriggers(head: bigint, targets: Targets, subs: SubsIndex) {
   for (const [target, t] of targets.entries()) {
     const seen = { creator: t.creator, owner: t.owner };
     for (const sub of subs.forTarget(target)) {
+      // An expired subscription no longer asks: there's no event for natural expiry, so it would
+      // otherwise keep firing until the hourly re-sync drops it.
+      if (sub.expiresAt <= head) continue;
       if ((sub.trigger === "expiring" || sub.trigger === "keep") && !t.gone) {
         // Once a keep lands, ExpiryExtended moves expiresAt, so the next cycle re-arms on its own.
         const triggerBlock = t.expiresAt - sub.leadBlocks!;

@@ -16,7 +16,10 @@ export function fireChanged(o: {
   seen?: Seen;
   receipts: Pick<Receipts, "fire">;
 }): Later | undefined {
-  const watching = o.subs.filter((s) => s.trigger === "changed");
+  // A subscription that expired by this block no longer asks (it lingers until the hourly re-sync).
+  const watching = o.subs.filter(
+    (s) => s.trigger === "changed" && s.expiresAt > o.block,
+  );
   if (watching.length === 0) return;
   // A change is never offered again, so a failed fire throws and the dispatcher retries the Later.
   return () =>

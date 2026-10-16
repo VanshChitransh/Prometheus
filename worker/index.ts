@@ -60,6 +60,7 @@ const dispatch = createDispatch({
   targets,
   receipts,
   trustedWorkers: cfg.trustedWorkers,
+  headNow: () => pub.getBlockNumber(),
 });
 
 const stopStream = startStream({

@@ -32,6 +32,7 @@ export async function matchCreated(o: {
   const candidates = o.subs.filter(
     (s) =>
       s.trigger === "new_match" &&
+      s.expiresAt > e.blockNumber && // an expired subscription no longer asks
       (!s.targetOwner || s.targetOwner.toLowerCase() === owner),
   );
   const matched: Sub[] = [];

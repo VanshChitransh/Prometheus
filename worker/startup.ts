@@ -121,8 +121,18 @@ export async function seedTargets(
     targets.markGone(k);
     gone++;
   });
+  // LLD §3.8: expiring, changed and keep need a live target; only `expired` may watch one that
+  // already lapsed (that's what it's for). The rest can never fire usefully again.
+  let rejected = 0;
+  for (const s of subs.all()) {
+    const t = s.targetKey && targets.get(s.targetKey);
+    if (s.targetKey && s.trigger !== "expired" && (!t || t.gone)) {
+      subs.remove(s.key);
+      rejected++;
+    }
+  }
   console.log(
-    `[startup] ${watched.size} targets: ${watched.size - gone - unknown} live, ${gone} expired while away, ${unknown} gone with no expiry in the last day`,
+    `[startup] ${watched.size} targets: ${watched.size - gone - unknown} live, ${gone} expired while away, ${unknown} gone with no expiry in the last day; ${rejected} subscriptions dropped (target not live)`,
   );
 }
 

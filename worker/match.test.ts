@@ -98,3 +98,8 @@ test("counts run one at a time, so the dispatch limiter's cap holds for the node
   assert.equal(r.peak, 1);
   assert.equal(r.fired.length, 3);
 });
+
+test("an expired subscription isn't evaluated", async () => {
+  const r = await run([sub(1, { expiresAt: 400n })]); // expired before block 500
+  assert.deepEqual(r.queries, []);
+});

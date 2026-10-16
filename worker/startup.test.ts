@@ -196,3 +196,16 @@ test("mergeResync doesn't resurrect a subscription deleted live while discovery 
   assert.equal(r.subs.get(sub(20).key), undefined);
   assert.equal(r.subs.removed.size, 0); // the new index starts with a clean slate
 });
+
+test("seedTargets drops expiring/changed/keep subs whose target isn't live; expired subs stay", async () => {
+  const [warn, gone] = [
+    sub(1, { trigger: "expiring", leadBlocks: 30n }),
+    sub(2),
+  ];
+  const k = warn.targetKey!;
+  const s = index(warn, { ...gone, targetKey: k });
+  const { pub } = node({ logs: { [k]: [created(k, 700n)] } }); // expired while we were away
+  await seedTargets(pub, s, new Targets(), 1_000n);
+  assert.equal(s.get(warn.key), undefined); // can never warn about a dead target
+  assert.ok(s.get(gone.key)); // `expired` is exactly for this
+});
