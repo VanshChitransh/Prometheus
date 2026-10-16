@@ -107,6 +107,7 @@ export type RawEntity = {
   key: Hex;
   creator: Hex;
   owner: Hex;
+  createdAt: bigint; // creation block: orders the per-creator cap
   expiresAt: bigint;
   flags: { readonly: boolean; permissionlessExtension: boolean };
   // u64 → bigint; i32 → number; bool → boolean; everything else (str, key, addr, u256…) a string.
@@ -129,6 +130,7 @@ export async function rawGetEntity(
     // The node returns lowercase; checksum so === matches TRUSTED_WORKERS and the SDK's output.
     creator: checksumAddress(e.creator!),
     owner: checksumAddress(e.owner!),
+    createdAt: BigInt(e.createdAt!),
     expiresAt: BigInt(e.expiresAt!),
     flags: {
       readonly: flags?.readonly ?? false,

@@ -20,6 +20,7 @@ const entity = (
     key: `0x${"a".repeat(64)}`,
     creator: `0x${"1".repeat(40)}`,
     owner: `0x${"1".repeat(40)}`,
+    createdAt: 650_000n,
     expiresAt: 900_000n,
     flags: { readonly: false, permissionlessExtension: true },
     attributes: attributes as RawEntity["attributes"],

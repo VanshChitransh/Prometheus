@@ -11,6 +11,7 @@ import { parseSearch } from "./searchAst.ts";
 export type Sub = {
   key: Hex;
   creator: Hex;
+  createdAt: bigint;
   expiresAt: bigint;
   publicMonitor: boolean; // permissionlessExtension: anyone may renew it
   trigger: Trigger;
@@ -108,6 +109,7 @@ function decode(e: RawEntity): Sub {
   return {
     key: e.key,
     creator: e.creator,
+    createdAt: e.createdAt,
     expiresAt: e.expiresAt,
     publicMonitor: e.flags.permissionlessExtension,
     trigger,
