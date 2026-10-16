@@ -215,3 +215,33 @@ test("settle() waits for every handler in the block; a failing one doesn't block
   } as EntityEvent);
   await broken.settle(11n);
 });
+
+test("a replay burst is capped at 16 requests in flight, and every event still gets handled", async () => {
+  let active = 0;
+  let peak = 0;
+  let handled = 0;
+  const pub = {
+    request: async () => {
+      peak = Math.max(peak, ++active);
+      await new Promise((r) => setTimeout(r, 2));
+      active--;
+      handled++;
+      return 0; // not a subscription
+    },
+  };
+  const d = createDispatch({
+    pub: pub as never,
+    subs: () => new SubsIndex(),
+    targets: new Targets(),
+  });
+  for (let i = 0; i < 50; i++)
+    d.onEvent({
+      ...created(hex(5000 + i)),
+      blockNumber: 10n,
+      transactionHash: hex(9),
+      logIndex: i,
+    } as EntityEvent);
+  await d.settle(10n);
+  assert.equal(handled, 50);
+  assert.equal(peak, 16);
+});
