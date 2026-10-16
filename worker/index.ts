@@ -5,6 +5,7 @@ import { loadConfig } from "../shared/config.ts";
 import { loadCheckpoint, saveCheckpoint } from "../shared/replay.ts";
 import { startHeartbeat } from "./heartbeat.ts";
 import { startStream } from "./stream.ts";
+import { discoverAll } from "./subs.ts";
 import { Writer } from "./writer.ts";
 
 const cfg = loadConfig("worker");
@@ -21,6 +22,9 @@ await mkdir("state", { recursive: true });
 let checkpoint =
   (await loadCheckpoint(CHECKPOINT)) ?? (await pub.getBlockNumber()) - 1_800n;
 let saving = Promise.resolve();
+
+// LLD §3.2 step 2. The index feeds the expiry monitor and event dispatch (T2.5, T2.7).
+await discoverAll(pub);
 
 const stopStream = startStream({
   ws: publicWs(cfg.ws),
