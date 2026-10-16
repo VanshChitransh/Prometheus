@@ -7,7 +7,14 @@ import {
   type RpcEntity,
 } from "@arkiv-network/sdk";
 import { tiramisu } from "@arkiv-network/sdk/chains";
-import { BaseError, checksumAddress, http, webSocket, type Hex } from "viem";
+import {
+  BaseError,
+  checksumAddress,
+  http,
+  publicActions,
+  webSocket,
+  type Hex,
+} from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 // retryCount 0: a 429 surfaces in seconds instead of viem silently honouring Retry-After (LLD §9).
@@ -25,14 +32,15 @@ export const publicHttp = (url: string, accessKey?: string) =>
     transport: httpTransport(url, accessKey),
   });
 
-// viem's default gives up after 5 reconnects. It also drops subscriptions on reconnect,
-// which the stall timer in stream.ts handles (LLD §3.3). viem's webSocket can't send headers,
-// so live events use the anonymous quota.
+// viem's default gives up after 5 reconnects. It restores subscriptions on reconnect but doesn't
+// backfill the gap; stream.ts replays it (LLD §3.3). viem's webSocket can't send headers,
+// so live events use the anonymous quota. The SDK adds all of viem's public actions at runtime but
+// types only a subset; re-extending types watchBlockNumber (the heads stream) without changing behaviour.
 export const publicWs = (url: string) =>
   createPublicClient({
     chain: tiramisu,
     transport: webSocket(url, { reconnect: { attempts: Infinity } }),
-  });
+  }).extend(publicActions);
 
 // No retries here either: retrying a write is writer.ts's job, because it owns the nonce.
 export const walletClient = (
