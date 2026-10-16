@@ -45,6 +45,7 @@ export class Receipts {
   readonly #pub: PublicArkivClient;
   readonly #delay: bigint;
   readonly #file: string;
+  readonly #trusted: string; // the $creator filter for every receipt count
   // ponytail: one id per trigger, never pruned; fine at hundreds a day, prune by trigger block if
   // it ever reaches millions. Rebuilt from receipts on restart (T2.8).
   readonly #fired = new Set<Hex>(); // done here or found on chain (fast path; the truth is on Arkiv)
@@ -65,11 +66,15 @@ export class Receipts {
     pub: PublicArkivClient;
     delayBlocks: number;
     file: string;
+    trustedWorkers: Hex[];
   }) {
     this.#writer = o.writer;
     this.#pub = o.pub;
     this.#delay = BigInt(o.delayBlocks);
     this.#file = o.file;
+    if (o.trustedWorkers.length === 0)
+      throw new Error("Receipts needs at least one trusted worker");
+    this.#trusted = `(${o.trustedWorkers.map((a) => `$creator = addr(${a})`).join(" OR ")})`;
   }
 
   get queued() {
@@ -221,9 +226,11 @@ export class Receipts {
     return this.#saving;
   }
 
-  // Schema query #2: has any worker already written a receipt for this trigger? Free.
+  // Schema query #2: has a trusted worker already written a receipt for this trigger? Free.
+  // Trusted only: trigger_id is computable by anyone, so without the $creator filter a forged
+  // receipt from any wallet would make both workers skip the real alert.
   async #landed(id: Hex) {
-    const q = `project = str('${PROJECT}') AND kind = str('receipt') AND trigger_id = bytes32(${id})`;
+    const q = `project = str('${PROJECT}') AND kind = str('receipt') AND trigger_id = bytes32(${id}) AND ${this.#trusted}`;
     return (await freeCount(this.#pub, q)) > 0;
   }
 

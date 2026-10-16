@@ -39,13 +39,17 @@ async function until(cond: () => boolean, what: string) {
   assert.fail(`timed out waiting for ${what}`);
 }
 
-// A fake chain: `landed` holds trigger ids that already have a receipt. The writer records batches;
+const TRUSTED = `0x${"5".repeat(40)}` as Hex;
+
+// A fake chain: `landed` holds trigger ids with a receipt from a trusted worker; `forged` holds ids
+// with a receipt from some other wallet, which only a query without the $creator filter would count. The writer records batches;
 // `next` makes the next batch throw ("throw") or be refused ("refuse").
 async function fake(delayBlocks = 0) {
   const file = join(await mkdtemp(join(tmpdir(), "receipts-")), "pending.json");
   const f = {
     file,
     landed: new Set<Hex>(),
+    forged: new Set<Hex>(),
     counts: 0,
     failCount: false,
     batches: [] as Hex[][],
@@ -59,8 +63,12 @@ async function fake(delayBlocks = 0) {
         f.failCount = false;
         throw new Error("rpc down");
       }
-      const id = params[0].query.match(/bytes32\((0x[0-9a-f]+)\)/)![1] as Hex;
-      return f.landed.has(id) ? 1 : 0;
+      const q = params[0].query;
+      const id = q.match(/bytes32\((0x[0-9a-f]+)\)/)![1] as Hex;
+      const trusted =
+        f.landed.has(id) && q.includes(`$creator = addr(${TRUSTED})`);
+      const forged = f.forged.has(id) && !q.includes("$creator");
+      return trusted || forged ? 1 : 0;
     },
   };
   const writer = {
@@ -84,6 +92,7 @@ async function fake(delayBlocks = 0) {
     pub: pub as never,
     delayBlocks,
     file,
+    trustedWorkers: [TRUSTED],
   });
   return { f, r };
 }
@@ -208,4 +217,12 @@ test("resume() requeues only the receipts that never landed", async () => {
   r.onHead(5_000n);
   await until(() => f.batches.length === 1, "the flush");
   assert.equal(f.batches[0]!.length, 1);
+});
+
+test("a forged receipt from an untrusted wallet doesn't suppress the real one", async () => {
+  const { f, r } = await fake();
+  f.forged.add(idFor(100n)); // anyone can compute trigger_id and write a lookalike
+  r.onHead(100n);
+  await r.fire(SUB, TARGET, "warned", 100n);
+  assert.equal(r.queued, 1);
 });

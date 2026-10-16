@@ -16,6 +16,11 @@ const wallet = walletClient(cfg.privateKey, cfg.http, cfg.accessKey);
 const writer = new Writer(wallet);
 const pub = publicHttp(cfg.http, cfg.accessKey);
 const address = wallet.account.address;
+// Our own receipts must count in the dedupe check, or every restart would write them again.
+if (!cfg.trustedWorkers.some((a) => a.toLowerCase() === address.toLowerCase()))
+  throw new Error(
+    `TRUSTED_WORKERS must include this worker's address ${address}`,
+  );
 
 // Per wallet, like the heartbeat's key file, so A and B can share a machine while testing.
 const CHECKPOINT = `state/checkpoint-${address}.json`;
@@ -41,6 +46,7 @@ const receipts = new Receipts({
   pub,
   delayBlocks: cfg.delayBlocks,
   file: `state/pending-${address}.json`,
+  trustedWorkers: cfg.trustedWorkers,
 });
 await receipts.resume(); // receipts a crash left unsent
 const expiry = new ExpiryMonitor({ pub, targets, subs: () => subs, receipts });
