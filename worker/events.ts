@@ -1,6 +1,6 @@
 // The LLD §3.3 table: turns stream events into updates of the subscription index and the target
 // cache, and tells the entrypoint when a block is fully handled so the checkpoint can pass it.
-// Node only. change/new_match hooks arrive with T2.9 and T2.10.
+// Node only. The change hooks arrive with T2.10.
 import type {
   EntityCreatedEvent,
   EntityEvent,
@@ -11,6 +11,8 @@ import { freeCount, rawGetEntity } from "../shared/arkiv.ts";
 import { PROJECT } from "../shared/schema.ts";
 import { decodeSubscription } from "../shared/subscription.ts";
 import type { Targets } from "./expiry.ts";
+import { matchCreated, type Later } from "./match.ts";
+import type { Receipts } from "./receipts.ts";
 import type { SubsIndex } from "./subs.ts";
 
 const MAX_IN_FLIGHT = 16;
@@ -19,27 +21,29 @@ export function createDispatch(o: {
   pub: PublicArkivClient;
   subs: () => SubsIndex; // a getter: the hourly re-sync swaps in a fresh index
   targets: Targets;
+  receipts: Pick<Receipts, "fire">;
+  trustedWorkers: readonly Hex[];
 }) {
-  const { pub, subs, targets } = o;
+  const { pub, subs, targets, receipts } = o;
   const blocks = new Map<bigint, Promise<void>[]>();
   // A catch-up replays thousands of events at once; unbounded, each EntityCreated's free count hit
   // the node together and ~100 timed out (1,697-block replay, 16 Oct). Measured 17 Oct: 16 in flight
   // drains ~49 counts/s with no errors, so an hour of catch-up (~3,800 events) takes ~80 s.
   let active = 0;
   const waiting: (() => void)[] = [];
-  async function limited(fn: () => Promise<void>) {
+  async function limited<T>(fn: () => Promise<T>) {
     while (active >= MAX_IN_FLIGHT)
       await new Promise<void>((r) => waiting.push(r));
     active++;
     try {
-      await fn();
+      return await fn();
     } finally {
       active--;
       waiting.shift()?.();
     }
   }
 
-  async function created(e: EntityCreatedEvent) {
+  async function created(e: EntityCreatedEvent): Promise<Later | void> {
     // Free count first: ~1 event/s chain-wide, and almost none are our subscriptions. The node
     // insists on typed hex literals, so key(…), not a bare 0x… (measured 17 Oct).
     const q = `project = str('${PROJECT}') AND kind = str('subscription') AND $key = key(${e.entityKey})`;
@@ -55,6 +59,13 @@ export function createDispatch(o: {
           permissionlessExtension: e.creationFlags.permissionlessExtension,
         },
       });
+    return matchCreated({
+      e,
+      subs: subs().all(),
+      pub,
+      receipts,
+      workers: o.trustedWorkers,
+    });
   }
 
   // Same path as discovery: a free raw read, decoded exactly as the web form decodes it.
@@ -79,7 +90,7 @@ export function createDispatch(o: {
     console.log(`[events] subscription ${key} added (${d.sub.trigger})`);
   }
 
-  async function handle(e: EntityEvent) {
+  async function handle(e: EntityEvent): Promise<Later | void> {
     switch (e.type) {
       case "EntityCreated":
         return created(e);
@@ -104,9 +115,14 @@ export function createDispatch(o: {
       // ponytail: a failed handler (e.g. an RPC timeout) is logged and the block still counts as
       // handled, so one bad call can't freeze the checkpoint; the hourly re-sync (T2.8) repairs
       // whatever it missed. Retry here if an hour of staleness ever matters.
-      const done = limited(() => handle(e)).catch((err) =>
-        console.error(`[events] ${e.type} ${e.entityKey} failed:`, err),
-      );
+      // A handler's Later runs after its slot is freed, but still before the block settles.
+      const done = limited(() => handle(e))
+        .then((later) => later?.())
+        .then(
+          () => {},
+          (err) =>
+            console.error(`[events] ${e.type} ${e.entityKey} failed:`, err),
+        );
       const list = blocks.get(e.blockNumber);
       if (list) list.push(done);
       else blocks.set(e.blockNumber, [done]);
