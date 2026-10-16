@@ -8,7 +8,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { PROJECT } from "../shared/schema.ts";
 
 const url = process.env.ARKIV_HTTP!;
-const apiKey = process.env.ARKIV_ACCESS_KEY_A!;
+const apiKey = process.env.ARKIV_ACCESS_KEY!;
 const transport = http(url, {
   fetchOptions: { headers: { "X-API-KEY": apiKey } },
 });
@@ -17,7 +17,7 @@ const wallet = createWalletClient({
   chain: tiramisu,
   transport,
   account: privateKeyToAccount(
-    process.env.WORKER_A_PRIVATE_KEY as `0x${string}`,
+    process.env.WORKER_PRIVATE_KEY as `0x${string}`,
   ),
 });
 
