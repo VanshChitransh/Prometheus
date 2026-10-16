@@ -1,31 +1,29 @@
 // Measures what the LLD takes on trust (T0.3). Each check prints one result line.
-// Run: npm run probe   (writes one short-lived entity with WORKER_A; costs ~0.0001 GLM)
-import { createPublicClient, createWalletClient } from "@arkiv-network/sdk";
-import { tiramisu } from "@arkiv-network/sdk/chains";
+// Run: npm run probe   (writes one short-lived entity with worker A; costs ~0.0001 GLM)
 import { ExpirationTime, jsonToPayload } from "@arkiv-network/sdk/utils";
-import { http } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import {
+  freeCount,
+  publicHttp,
+  rawGetEntity,
+  walletClient,
+} from "../shared/arkiv.ts";
+import { loadConfig } from "../shared/config.ts";
 import { PROJECT } from "../shared/schema.ts";
 
-const url = process.env.ARKIV_HTTP!;
-const apiKey = process.env.ARKIV_ACCESS_KEY!;
-const transport = http(url, {
-  fetchOptions: { headers: { "X-API-KEY": apiKey } },
-});
-const pub = createPublicClient({ chain: tiramisu, transport });
-const wallet = createWalletClient({
-  chain: tiramisu,
-  transport,
-  account: privateKeyToAccount(
-    process.env.WORKER_PRIVATE_KEY as `0x${string}`,
-  ),
-});
+const cfg = loadConfig("worker");
+const pub = publicHttp(cfg.http, cfg.accessKey);
+const wallet = walletClient(cfg.privateKey, cfg.http, cfg.accessKey);
 
 // One raw JSON-RPC call, returning the body and any Arkiv-* response headers.
+// Kept beside the shared clients on purpose: lines 1b, 1c and 6 measure headers and raw errors,
+// which the clients hide.
 async function rpc(method: string, params: unknown[]) {
-  const res = await fetch(url, {
+  const res = await fetch(cfg.http, {
     method: "POST",
-    headers: { "content-type": "application/json", "X-API-KEY": apiKey },
+    headers: {
+      "content-type": "application/json",
+      ...(cfg.accessKey && { "X-API-KEY": cfg.accessKey }),
+    },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
   });
   const headers = [...res.headers].filter(([k]) => k.startsWith("arkiv"));
@@ -33,7 +31,12 @@ async function rpc(method: string, params: unknown[]) {
 }
 
 const line = (n: string, msg: unknown) =>
-  console.log(`[${n}]`, typeof msg === "string" ? msg : JSON.stringify(msg));
+  console.log(
+    `[${n}]`,
+    typeof msg === "string"
+      ? msg
+      : JSON.stringify(msg, (_, v) => (typeof v === "bigint" ? String(v) : v)),
+  );
 
 // Setup: one entity to inspect.
 const { entityKey, txHash } = await wallet.createEntity({
@@ -60,6 +63,14 @@ line("1b raw arkiv_getEntity", await rpc("arkiv_getEntity", [entityKey]));
 // 1c. The cost header on the call the SDK actually makes.
 const q = await rpc("arkiv_query", [`$key = ${entityKey}`, { limit: 1 }]);
 line("1c arkiv_query headers", { status: q.status, headers: q.headers });
+
+// 1d–1f. The shared free calls (T1.2), checked against the live node.
+line("1d rawGetEntity", await rawGetEntity(pub, entityKey));
+line("1e rawGetEntity missing", await rawGetEntity(pub, `0x${"1".repeat(64)}`));
+line(
+  "1f freeCount",
+  await freeCount(pub, `project = str('${PROJECT}') AND kind = str('probe')`),
+);
 
 // 6. eth_getLogs over the whole chain: what does the "too many results" error look like?
 line(
