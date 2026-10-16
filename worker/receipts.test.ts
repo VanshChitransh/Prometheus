@@ -226,3 +226,12 @@ test("a forged receipt from an untrusted wallet doesn't suppress the real one", 
   await r.fire(SUB, TARGET, "warned", 100n);
   assert.equal(r.queued, 1);
 });
+
+test("a seeded day count (restored after a restart) still caps the subscription", async () => {
+  const { r } = await fake();
+  r.seedDayCount(SUB.key, 19);
+  r.onHead(1_000n);
+  await r.fire(SUB, TARGET, "warned", 1n);
+  await r.fire(SUB, TARGET, "warned", 2n);
+  assert.equal(r.queued, 1); // 19 + 1 = maxPerDay
+});
