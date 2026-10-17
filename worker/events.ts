@@ -11,6 +11,7 @@ import type { Targets } from "./expiry.ts";
 import { createLimiter } from "./limit.ts";
 import { matchCreated, type Later } from "./match.ts";
 import type { Receipts } from "./receipts.ts";
+import { seedGone } from "./startup.ts";
 import type { SubsIndex } from "./subs.ts";
 
 const MAX_ATTEMPTS = 10; // ~4 min of backoff (1 s → 30 s) before a persistent failure is dropped
@@ -104,6 +105,9 @@ export function createDispatch(o: {
           `[events] subscription ${key} rejected: its target ${target} doesn't exist`,
         );
       }
+      // An `expired` sub on a target that already lapsed: find its real expiry now, as startup
+      // does, or `expired` waited for the hourly re-sync. A throw retries the event.
+      if (o.headNow) await seedGone(pub, targets, target, await o.headNow());
     }
     console.log(`[events] subscription ${key} added (${d.sub.trigger})`);
   }

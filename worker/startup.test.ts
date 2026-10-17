@@ -15,6 +15,7 @@ import {
   lastExpiry,
   mergeResync,
   rebuildDayCounts,
+  seedGone,
   seedTargets,
 } from "./startup.ts";
 import { SubsIndex } from "./subs.ts";
@@ -208,4 +209,20 @@ test("seedTargets drops expiring/changed/keep subs whose target isn't live; expi
   await seedTargets(pub, s, new Targets(), 1_000n);
   assert.equal(s.get(warn.key), undefined); // can never warn about a dead target
   assert.ok(s.get(gone.key)); // `expired` is exactly for this
+});
+
+test("dayStartBlock never goes below block 0 on a chain younger than today", () => {
+  const noon = new Date(Date.UTC(2026, 9, 17, 12));
+  assert.equal(dayStartBlock(50n, noon), 0n);
+  assert.equal(dayStartBlock(100_000n, noon), 100_000n - 21_600n);
+});
+
+test("seedGone caches a lapsed target as gone at its real expiry; false without a record", async () => {
+  const k = hex(1001);
+  const { pub } = node({ logs: { [k]: [created(k, 400n)] } });
+  const targets = new Targets();
+  assert.equal(await seedGone(pub, targets, k, 500n), true);
+  assert.equal(targets.get(k)?.gone, true);
+  assert.equal(targets.get(k)?.expiresAt, 400n);
+  assert.equal(await seedGone(pub, targets, hex(1002), 500n), false);
 });

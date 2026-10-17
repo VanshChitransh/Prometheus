@@ -198,3 +198,24 @@ test("no trigger with a negative block (a chain younger than lead_blocks)", () =
   });
   assert.deepEqual(events(dueTriggers(25n, targets, subs)), []);
 });
+
+// Every extend/transfer/delete on the whole chain reaches the cache ("no-op unless watched"); the
+// version map used to keep one entry per key it ever saw: ~27k a day, never pruned.
+test("chain-wide events for unwatched keys leave nothing behind", () => {
+  const t = new Targets();
+  for (let i = 0; i < 10_000; i++) {
+    const k = hex(50_000 + i);
+    t.extend(k, 1n);
+    t.transfer(k, OWNER);
+    t.delete(k);
+  }
+  assert.equal(t.versionCount, 0);
+  t.set(hex(1), {
+    expiresAt: 5n,
+    creator: OWNER,
+    owner: OWNER,
+    flags: { readonly: false, permissionlessExtension: false },
+  });
+  t.delete(hex(1));
+  assert.equal(t.versionCount, 0); // a watched key's entry goes when the key does
+});

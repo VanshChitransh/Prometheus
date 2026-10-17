@@ -48,6 +48,8 @@ export class SubsIndex {
       evicted = this.#delete(newest.key);
     }
     const id = lower(sub.key);
+    // Back in the index (e.g. patched invalid, then valid again): the re-sync must not drop it.
+    this.removed.delete(id);
     this.#subs.set(id, sub);
     if (sub.targetKey) link(this.#byTarget, lower(sub.targetKey), id);
     link(this.#byCreator, sub.creator, id);

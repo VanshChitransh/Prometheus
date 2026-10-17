@@ -14,6 +14,20 @@ const cfg = loadConfig("worker");
 const pub = publicHttp(cfg.http, cfg.accessKey);
 const wallet = walletClient(cfg.privateKey, cfg.http, cfg.accessKey);
 
+// The probe writes with worker A's wallet outside the worker's Writer, so a running worker A would
+// race it for nonces. A live heartbeat entity means it runs (or stopped < 30 min ago, while the
+// entity lapses): refuse rather than risk a stuck nonce in the real worker.
+const live = await freeCount(
+  pub,
+  `project = str('${PROJECT}') AND kind = str('worker') AND $creator = addr(${wallet.account.address})`,
+);
+if (live > 0) {
+  console.error(
+    `[probe] worker ${wallet.account.address} looks alive (its heartbeat entity is live). Stop it, wait for the entity to lapse (≤ 30 min), then rerun.`,
+  );
+  process.exit(1);
+}
+
 // One raw JSON-RPC call, returning the body and any Arkiv-* response headers.
 // Kept beside the shared clients on purpose: lines 1b, 1c and 6 measure headers and raw errors,
 // which the clients hide.

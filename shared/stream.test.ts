@@ -45,6 +45,7 @@ function fake(logs: ReturnType<typeof logged>[] = [], autoHead = true) {
     heads: [] as bigint[],
     httpHeads: [] as bigint[],
     rawHeads: [] as bigint[],
+    throwOnce: undefined as string | undefined, // the next delivery of this event throws
   };
   const stop = startStream({
     ws: {
@@ -90,8 +91,14 @@ function fake(logs: ReturnType<typeof logged>[] = [], autoHead = true) {
       },
     } as never,
     checkpoint: () => (f.checkpointReads++, f.checkpoint),
-    onEvent: (e) =>
-      f.delivered.push(`${e.transactionHash.slice(-1)}@${e.blockNumber}`),
+    onEvent: (e) => {
+      const id = `${e.transactionHash.slice(-1)}@${e.blockNumber}`;
+      if (f.throwOnce === id) {
+        f.throwOnce = undefined;
+        throw new Error("handler bug");
+      }
+      f.delivered.push(id);
+    },
     onHead: (n) => {
       f.heads.push(n);
       f.checkpoint = n - 1n;
@@ -218,4 +225,24 @@ test("raw heads keep flowing while catching up (they drive the receipt flush)", 
   assert.deepEqual(f.rawHeads, [105n, 106n]); // ...the flush clock doesn't
   f.release();
   stop();
+});
+
+test("an event whose handler throws is replayed by the catch-up, not skipped as already seen", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const error = console.error;
+  console.error = () => {}; // the failed catch-up is logged; keep test output clean
+  try {
+    const { f, stop } = fake([logged(3, 103n)]);
+    f.throwOnce = "3@103";
+    f.release();
+    for (let i = 0; i < 5; i++) await flush();
+    assert.deepEqual(f.delivered, []); // the handler threw: catch-up failed
+    mock.timers.tick(5_000); // → reconnect and replay from the checkpoint
+    for (let i = 0; i < 5; i++) await flush();
+    assert.deepEqual(f.delivered, ["3@103"]);
+    stop();
+  } finally {
+    console.error = error;
+    mock.timers.reset();
+  }
 });

@@ -83,3 +83,13 @@ test("target lookups ignore key letter case", () => {
     hex(1),
   );
 });
+
+test("a subscription re-added after a removal is no longer marked removed", () => {
+  const i = new SubsIndex();
+  const s = sub(1);
+  i.add(s);
+  i.remove(s.key); // e.g. patched invalid
+  assert.equal(i.removed.has(s.key.toLowerCase() as Hex), true);
+  i.add(s); // patched valid again
+  assert.equal(i.removed.has(s.key.toLowerCase() as Hex), false); // the re-sync must keep it
+});

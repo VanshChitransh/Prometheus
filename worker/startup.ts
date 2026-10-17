@@ -38,7 +38,9 @@ export function dayStartBlock(head: bigint, now: Date) {
     now.getUTCMonth(),
     now.getUTCDate(),
   );
-  return head - BigInt(Math.floor((now.getTime() - midnight) / 2_000));
+  const start = head - BigInt(Math.floor((now.getTime() - midnight) / 2_000));
+  // Never below 0: on a chain younger than today, u64(-N) in the day-count query crashed startup.
+  return start > 0n ? start : 0n;
 }
 
 // A gone target's last known expiry, from its own logs over the last day: the same block the live
@@ -98,6 +100,23 @@ export async function lastExpiry(
   return seen && seen.expiresAt <= head ? seen : undefined;
 }
 
+// A target that's gone now: if it expired in the last day, cache it as gone at its real expiry
+// block, so the monitor fires `expired` with the trigger_id A, B and any pre-crash receipt agree
+// on. false = no expiry in the window (deleted, or lapsed too long ago). Used by seedTargets and by
+// a live `expired` subscription (events.ts), which otherwise waited up to an hour for the re-sync.
+export async function seedGone(
+  pub: PublicArkivClient,
+  targets: Targets,
+  k: Hex,
+  head: bigint,
+): Promise<boolean> {
+  const last = await lastExpiry(pub, k, head);
+  if (!last) return false;
+  targets.set(k, last);
+  targets.markGone(k);
+  return true;
+}
+
 // LLD §3.2 step 3, also run by the hourly re-sync: one free read per distinct target. Live → cached
 // (a re-read fixes drifted expiries). Gone → cached as gone at its real expiry block, so the monitor
 // fires `expired`; a target already known to be gone isn't looked up again.
@@ -116,14 +135,12 @@ export async function seedTargets(
   let unknown = 0;
   await inBatches([...watched], async (k) => {
     if (targets.get(k)?.gone || (await targets.seed(pub, k))) return;
-    const last = await lastExpiry(pub, k, head).catch((e) => {
+    const found = await seedGone(pub, targets, k, head).catch((e) => {
       console.error(`[startup] looking up ${k}'s last expiry failed:`, e);
-      return undefined;
+      return false;
     });
-    if (!last) return unknown++;
-    targets.set(k, last);
-    targets.markGone(k);
-    gone++;
+    if (found) gone++;
+    else unknown++;
   });
   // LLD §3.8: expiring, changed and keep need a live target; only `expired` may watch one that
   // already lapsed (that's what it's for). The rest can never fire usefully again.

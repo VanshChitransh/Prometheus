@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { EntityEvent } from "@arkiv-network/sdk";
-import { toHex, type Hex } from "viem";
+import { ENTITY_EVENTS_ABI, type EntityEvent } from "@arkiv-network/sdk";
+import { encodeAbiParameters, encodeEventTopics, toHex, type Hex } from "viem";
 import { parseSearch } from "../shared/searchAst.ts";
 import type { Sub } from "../shared/subscription.ts";
 import { createDispatch } from "./events.ts";
@@ -708,4 +708,59 @@ test("new_match still sees creations replayed from before the discovery block", 
     fired.map((x) => [x.event, x.subject]),
     [["matched", NEW_SUB]],
   );
+});
+
+// An `expired` subscription may watch a target that already lapsed. Startup and the hourly re-sync
+// find that target's real expiry; a subscription arriving live used to wait for the re-sync (≤ 1 h).
+test("an expired subscription arriving live for a lapsed target is armed at once", async () => {
+  const subKey = hex(2100);
+  const lapsed = hex(1100);
+  const expiredSub = {
+    ...rpcSub(subKey, "lapsed"),
+    attributes: [
+      { name: "project", type: "str", value: "prometheus" },
+      { name: "kind", type: "str", value: "subscription" },
+      { name: "trigger", type: "str", value: "expired" },
+      { name: "target_key", type: "key", value: lapsed },
+    ],
+  };
+  const createdLog = {
+    topics: encodeEventTopics({
+      abi: ENTITY_EVENTS_ABI,
+      eventName: "EntityCreated",
+      args: { entityKey: lapsed, owner: OWNER },
+    }),
+    data: encodeAbiParameters(
+      [{ type: "uint64" }, { type: "uint8" }],
+      [400n, 0],
+    ),
+  };
+  const pub = {
+    request: async ({ method, params }: { method: string; params: any[] }) => {
+      if (method === "arkiv_getEntityCount") return 1; // it is a subscription
+      if (method === "eth_getLogs")
+        return params[0].topics[1] === lapsed ? [createdLog] : [];
+      return params[0] === subKey ? expiredSub : null; // the target is gone
+    },
+  };
+  const subs = new SubsIndex();
+  const targets = new Targets();
+  const d = createDispatch({
+    pub: pub as never,
+    subs: () => subs,
+    targets,
+    receipts: { fire: async () => "done" as const },
+    trustedWorkers: [],
+    headNow: async () => 500n,
+  });
+  d.onEvent({
+    ...created(subKey),
+    blockNumber: 10n,
+    transactionHash: hex(9),
+    logIndex: 0,
+  } as EntityEvent);
+  await d.settle(10n);
+  assert.equal(subs.get(subKey)?.trigger, "expired");
+  assert.equal(targets.get(lapsed)?.gone, true); // the monitor fires `expired` on the next head
+  assert.equal(targets.get(lapsed)?.expiresAt, 400n);
 });

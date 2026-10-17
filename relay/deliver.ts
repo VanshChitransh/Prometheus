@@ -8,7 +8,11 @@ import { dirname } from "node:path";
 import type { EntityEvent, PublicArkivClient } from "@arkiv-network/sdk";
 import { hexToString, type Hex } from "viem";
 import { rawGetEntity, type RawEntity } from "../shared/arkiv.ts";
-import { loadCheckpoint, saveCheckpoint } from "../shared/replay.ts";
+import {
+  loadCheckpoint,
+  oneHourBack,
+  saveCheckpoint,
+} from "../shared/replay.ts";
 import { PROJECT, type Event } from "../shared/schema.ts";
 import { startStream, type StreamOptions } from "../shared/stream.ts";
 import { decodeSubscription } from "../shared/subscription.ts";
@@ -253,13 +257,10 @@ export async function startDelivery(o: {
   send: (chatId: number, text: string) => Promise<unknown>;
 }) {
   await mkdir(dirname(o.checkpointFile), { recursive: true });
-  // First boot: one hour back, like the worker (LLD §3.2 step 1), but never before block 0.
-  const oneHourBack = async () => {
-    const head = await o.http.getBlockNumber();
-    return head > 1_800n ? head - 1_800n : 0n;
-  };
+  // First boot: one hour back, like the worker (LLD §3.2 step 1).
   let checkpoint =
-    (await loadCheckpoint(o.checkpointFile)) ?? (await oneHourBack());
+    (await loadCheckpoint(o.checkpointFile)) ??
+    oneHourBack(await o.http.getBlockNumber());
   const queue = createSendQueue({ send: o.send });
   const handle = createHandler({
     client: o.http,

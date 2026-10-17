@@ -2,7 +2,11 @@
 import { mkdir } from "node:fs/promises";
 import { publicHttp, publicWs, walletClient } from "../shared/arkiv.ts";
 import { loadConfig } from "../shared/config.ts";
-import { loadCheckpoint, saveCheckpoint } from "../shared/replay.ts";
+import {
+  loadCheckpoint,
+  oneHourBack,
+  saveCheckpoint,
+} from "../shared/replay.ts";
 import { createDispatch } from "./events.ts";
 import { ExpiryMonitor, Targets } from "./expiry.ts";
 import { startHeartbeat } from "./heartbeat.ts";
@@ -28,9 +32,9 @@ if (!cfg.trustedWorkers.some((a) => a.toLowerCase() === address.toLowerCase()))
 // Per wallet, like the heartbeat's key file, so A and B can share a machine while testing.
 const CHECKPOINT = `state/checkpoint-${address}.json`;
 await mkdir("state", { recursive: true });
-// First boot: start one hour back (LLD §3.2 step 1).
+// First boot: start one hour back (LLD §3.2 step 1), never before block 0.
 let checkpoint =
-  (await loadCheckpoint(CHECKPOINT)) ?? (await pub.getBlockNumber()) - 1_800n;
+  (await loadCheckpoint(CHECKPOINT)) ?? oneHourBack(await pub.getBlockNumber());
 let saving = Promise.resolve();
 
 // LLD §3.2 steps 2–3: discover subscriptions, then seed each distinct target, including ones that
