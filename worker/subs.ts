@@ -4,11 +4,11 @@ import type { PublicArkivClient } from "@arkiv-network/sdk";
 import { eq, MAX_LIMIT } from "@arkiv-network/sdk/query";
 import type { Hex } from "viem";
 import { rawGetEntity } from "../shared/arkiv.ts";
-import { PROJECT } from "../shared/schema.ts";
-import { decodeSubscription, type Sub } from "../shared/subscription.ts";
+import { BOUNDS, PROJECT } from "../shared/schema.ts";
+import { decodeSubscription, older, type Sub } from "../shared/subscription.ts";
 import { inBatches } from "../shared/limit.ts";
 
-const CAP_PER_CREATOR = 20; // LLD §3.8: beyond it, the newest are ignored
+const CAP_PER_CREATOR = BOUNDS.subsPerCreator; // LLD §3.8: beyond it, the newest are ignored
 const OVER_CAP = `over the ${CAP_PER_CREATOR}-per-creator cap`;
 
 export type AddResult =
@@ -16,10 +16,6 @@ export type AddResult =
 
 // Event keys arrive lowercase; a target_key attribute may not. Index everything lowercase.
 const lower = (k: Hex) => k.toLowerCase() as Hex;
-
-// Older first: creation block, then key, so every worker keeps the same 20.
-const older = (a: Sub, b: Sub) =>
-  a.createdAt < b.createdAt || (a.createdAt === b.createdAt && a.key < b.key);
 
 export class SubsIndex {
   readonly #subs = new Map<Hex, Sub>();

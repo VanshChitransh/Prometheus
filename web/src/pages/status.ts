@@ -18,7 +18,7 @@ const code = (text: string) => {
   return el;
 };
 
-function describe(s: Sub) {
+export function describe(s: Sub) {
   switch (s.trigger) {
     case "expiring":
       return `Warns ${span(s.leadBlocks!)} before the entity expires.`;

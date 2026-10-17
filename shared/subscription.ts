@@ -151,3 +151,17 @@ export function keepBlocked(
     return "deny_listed";
   return null;
 }
+
+// Older first: creation block, then key, so every worker keeps the same 20 (LLD §3.8).
+export const older = (a: Sub, b: Sub) =>
+  a.createdAt < b.createdAt || (a.createdAt === b.createdAt && a.key < b.key);
+
+// The keys workers actually serve among one creator's subscriptions: the oldest 20. Shared so
+// #/mine marks the rest "not served" by the worker's own rule.
+export const servedFirst = (subs: readonly Sub[]) =>
+  new Set(
+    [...subs]
+      .sort((a, b) => (older(a, b) ? -1 : older(b, a) ? 1 : 0))
+      .slice(0, BOUNDS.subsPerCreator)
+      .map((s) => s.key),
+  );

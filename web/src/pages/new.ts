@@ -179,7 +179,11 @@ export function newPage(el: HTMLElement) {
     code.textContent = key;
     head.append(`Created "${label}": `, code);
     const links = document.createElement("p");
-    links.append(link(`#/s/${key}`, "See its status"));
+    links.append(
+      link(`#/s/${key}`, "See its status"),
+      " · ",
+      link("#/mine", "My subscriptions"),
+    );
     if (__BOT_NAME__)
       links.append(
         " · ",

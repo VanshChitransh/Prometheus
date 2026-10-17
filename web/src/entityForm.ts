@@ -6,7 +6,12 @@ import { addr, key, u64 } from "@arkiv-network/sdk/attr";
 import { ExpirationTime } from "@arkiv-network/sdk/utils";
 import { hexToBytes, stringToHex, zeroHash, type Hex } from "viem";
 import type { RawEntity } from "../../shared/arkiv.ts";
-import { BLOCKS_PER_DAY, PROJECT, type Trigger } from "../../shared/schema.ts";
+import {
+  BLOCKS_PER_DAY,
+  LIFETIMES,
+  PROJECT,
+  type Trigger,
+} from "../../shared/schema.ts";
 
 export const BLOCKS_PER_MINUTE = 30; // a block every 2 s
 
@@ -17,6 +22,13 @@ export function span(blocks: bigint) {
   if (min < 48 * 60) return `~${Math.round(min / 60)} h`;
   return `~${Math.round(min / 1440)} d`;
 }
+
+// Renewal terms that would actually help. An extend *sets* the expiry from now, and the engine
+// rejects one that wouldn't move it later, so "1 day" on a sub with 6 left would just fail.
+export const renewChoices = (expiresAt: bigint, head: bigint) =>
+  LIFETIMES.subscriptionDays.filter(
+    (d) => head + BigInt(d * BLOCKS_PER_DAY) > expiresAt,
+  );
 
 export type FormValues = {
   trigger: Trigger;

@@ -4,6 +4,7 @@ import type { RawEntity } from "../../shared/arkiv.ts";
 import { parseSearch } from "../../shared/searchAst.ts";
 import { decodeSubscription } from "../../shared/subscription.ts";
 import {
+  renewChoices,
   searchRows,
   toDraft,
   toParams,
@@ -158,4 +159,11 @@ test("bad searches fail with the worker's reason", () => {
       false,
     );
   assert.equal(decode({ trigger: "new_match" }).ok, false); // nothing ticked yet
+});
+
+test("renewChoices offers only terms that move the expiry later", () => {
+  const day = 43_200n;
+  assert.deepEqual(renewChoices(1_000n + 6n * day, 1_000n), [7, 30]);
+  assert.deepEqual(renewChoices(1_000n, 1_000n), [1, 7, 30]);
+  assert.deepEqual(renewChoices(1_000n + 30n * day, 1_000n), []);
 });

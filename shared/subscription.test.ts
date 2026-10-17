@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { toHex } from "viem";
 import type { RawEntity } from "./arkiv.ts";
-import { decodeSubscription } from "./subscription.ts";
+import { decodeSubscription, servedFirst, type Sub } from "./subscription.ts";
 
 const TARGET = `0x${"b".repeat(64)}`;
 const search = { eq: ["kind", { str: "blood_request" }] };
@@ -187,3 +187,23 @@ for (const [name, e, reason] of rejected)
     assert.equal(r.ok, false);
     assert.match((r as { reason: string }).reason, reason);
   });
+
+test("servedFirst keeps a creator's 20 oldest, ties broken by key", () => {
+  const sub = (createdAt: number, k: number) =>
+    ({
+      createdAt: BigInt(createdAt),
+      key: `0x${k.toString(16).padStart(64, "0")}`,
+    }) as Sub;
+  // 19 old ones, then two created in the same block competing for the 20th slot, then a newest.
+  const subs = [
+    sub(500, 0x300),
+    sub(200, 0x201),
+    sub(200, 0x200),
+    ...Array.from({ length: 19 }, (_, i) => sub(100 + i, i)),
+  ];
+  const served = servedFirst(subs);
+  assert.equal(served.size, 20);
+  assert.equal(served.has(subs[2].key), true); // key 0x200 wins the tie
+  assert.equal(served.has(subs[1].key), false);
+  assert.equal(served.has(subs[0].key), false); // the newest
+});
