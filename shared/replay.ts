@@ -64,6 +64,10 @@ export class SeenLogs {
   constructor(max = 10_000) {
     this.#max = max;
   }
+  // For a log whose handler threw: the catch-up replay must deliver it again, not skip it as seen.
+  forget(log: { transactionHash: string; logIndex: number | bigint }) {
+    this.#keys.delete(`${log.transactionHash}:${log.logIndex}`);
+  }
   // true the first time a log is seen; false for a repeat.
   add(log: { transactionHash: string; logIndex: number | bigint }): boolean {
     const k = `${log.transactionHash}:${log.logIndex}`;
@@ -74,6 +78,11 @@ export class SeenLogs {
     return true;
   }
 }
+
+// First boot (no checkpoint): replay the last hour (LLD §3.2 step 1), but never from before block 0.
+// A negative start on a young or freshly wiped chain made getLogs throw on every catch-up forever.
+export const oneHourBack = (head: bigint) =>
+  head > 1_800n ? head - 1_800n : 0n;
 
 // The last block fully handled. undefined = no checkpoint yet (first boot).
 export async function loadCheckpoint(

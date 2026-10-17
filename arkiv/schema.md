@@ -98,7 +98,7 @@ erDiagram
 | `target_owner` | addr | new_match (optional)             | only consider new entities from this owner                                                 |
 | `lead_blocks`  | u64  | expiring, keep                   | act this many blocks before expiry; 30 to 43,200 (1 min to 1 day)                          |
 | `keep_blocks`  | u64  | keep                             | blocks added per extension; must be > `lead_blocks`; at least 1,800 (1 h); at most 30 days |
-| `max_per_day`  | u64  | all                              | alert cap per UTC day; default 20, max 100                                                 |
+| `max_per_day`  | u64  | none (optional, any trigger)     | alert cap per UTC day; default 20, max 100                                                 |
 
 - **Payload:** `{ v: 1, label }`, plus `search: <AST>` for `new_match` (a JSON tree, never a raw query string).
 - **Flags:** `permissionlessExtension` only when the user ticks "anyone can renew". Otherwise none.
@@ -123,7 +123,7 @@ erDiagram
 
 - **Payload:** `{ v: 1, note, target_creator, target_owner }`
   - No `tx`: a `kept` receipt is created in the same transaction as the extension, so that transaction is the receipt's own creation tx.
-  - `note`: for `keep_skipped`, the reason: `not_permissionless`, `deny_listed`, `already_extended`, `already_expired` or `budget` (the worker's daily keep budget is spent). For `keep_failed`, the engine's reason.
+  - `note`: for `keep_skipped`, the reason: `not_permissionless`, `deny_listed`, `already_extended`, `already_expired` or `budget` (the worker's daily keep budget is spent). `deny_listed` means the target's `kind` or `project` matches `canary`, `heartbeat`, `liveness`, `deadman`, `keepalive` or `watchdog` (with or without a separator, any case), or the target is one of Prometheus's own entities. For `keep_failed`, the engine's reason.
   - `target_creator` / `target_owner`: as last seen. An entity can be re-created under the same name after it expires, so the receipt pins _which_ one we watched.
 - **Flags:** `readonly`. This blocks **edits**. The owner (the worker) could still delete a receipt, but that deletion is itself public on chain. So the claim is "**cannot be rewritten; deletion is publicly logged**", not "cannot be removed".
 - **Lifetime:** 30 days.

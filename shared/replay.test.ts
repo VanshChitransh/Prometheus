@@ -12,6 +12,7 @@ import {
   saveCheckpoint,
   SeenLogs,
   smallerLogSpan,
+  oneHourBack,
 } from "./replay.ts";
 
 // A node that refuses spans over 500 blocks and has one log per block.
@@ -136,4 +137,19 @@ test("checkpoint round-trips, is undefined when missing, and throws when corrupt
   assert.equal(await loadCheckpoint(path), 645_100n);
   await writeFile(path, "{not json");
   await assert.rejects(loadCheckpoint(path));
+});
+
+test("oneHourBack never goes below block 0 (a young or freshly wiped chain)", () => {
+  assert.equal(oneHourBack(5_000n), 3_200n);
+  assert.equal(oneHourBack(1_800n), 0n);
+  assert.equal(oneHourBack(100n), 0n);
+});
+
+test("SeenLogs.forget lets a log be seen again", () => {
+  const seen = new SeenLogs();
+  const log = { transactionHash: "0xab", logIndex: 1 };
+  assert.equal(seen.add(log), true);
+  seen.forget(log);
+  assert.equal(seen.add(log), true);
+  assert.equal(seen.add(log), false);
 });

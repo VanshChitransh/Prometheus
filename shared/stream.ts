@@ -49,8 +49,16 @@ export function startStream({
   let stallTimer: NodeJS.Timeout | undefined;
   let retryTimer: NodeJS.Timeout | undefined;
 
+  // Seen only once handled: if onEvent throws, the catch-up that follows (via onError on the live
+  // path, the replay's rejection on the other) must deliver it again, not skip it as seen.
   const deliver = (e: EntityEvent) => {
-    if (seen.add(e)) onEvent(e);
+    if (!seen.add(e)) return;
+    try {
+      onEvent(e);
+    } catch (err) {
+      seen.forget(e);
+      throw err;
+    }
   };
 
   // Re-armed by every head; firing means the socket has gone quiet.

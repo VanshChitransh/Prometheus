@@ -32,11 +32,17 @@ const lower = (k: Hex) => k.toLowerCase() as Hex;
 export class Targets {
   readonly #m = new Map<Hex, Target>();
   // Bumped by every change to a key, so a read that started before the change knows it's stale.
-  // ponytail: one small number per target ever seen, never pruned; fine at thousands.
+  // Only keys that are cached or have a seed() read in flight are tracked: extend/transfer/delete
+  // run for every such event on the whole chain, and tracking all of them grew ~27k entries a day.
   readonly #version = new Map<Hex, number>();
+  readonly #seeding = new Map<Hex, number>(); // reads in flight per key (seeds can overlap)
 
   get size() {
     return this.#m.size;
+  }
+
+  get versionCount() {
+    return this.#version.size;
   }
 
   get(k: Hex) {
@@ -44,7 +50,8 @@ export class Targets {
   }
 
   #touch(k: Hex) {
-    this.#version.set(k, (this.#version.get(k) ?? 0) + 1);
+    if (this.#m.has(k) || this.#seeding.has(k))
+      this.#version.set(k, (this.#version.get(k) ?? 0) + 1);
     return this.#m.get(k);
   }
 
@@ -71,8 +78,11 @@ export class Targets {
   }
 
   delete(k: Hex) {
-    this.#touch(lower(k));
-    this.#m.delete(lower(k));
+    const key = lower(k);
+    this.#touch(key);
+    this.#m.delete(key);
+    // Gone from the cache: forget its version too, unless a seed still needs to see the bump.
+    if (!this.#seeding.has(key)) this.#version.delete(key);
   }
 
   entries() {
@@ -83,20 +93,30 @@ export class Targets {
   // event changed the key while the read was in flight, the event is newer: keep what it wrote.
   async seed(pub: PublicArkivClient, k: Hex) {
     const key = lower(k);
-    const before = this.#version.get(key);
-    const e = await rawGetEntity(pub, k);
-    if (this.#version.get(key) !== before) {
-      const now = this.#m.get(key);
-      return !!now && !now.gone;
+    this.#seeding.set(key, (this.#seeding.get(key) ?? 0) + 1);
+    try {
+      const before = this.#version.get(key);
+      const e = await rawGetEntity(pub, k);
+      if (this.#version.get(key) !== before) {
+        const now = this.#m.get(key);
+        return !!now && !now.gone;
+      }
+      if (!e) return false;
+      this.set(k, {
+        expiresAt: e.expiresAt,
+        creator: e.creator,
+        owner: e.owner,
+        flags: e.flags,
+      });
+      return true;
+    } finally {
+      const n = this.#seeding.get(key)! - 1;
+      if (n > 0) this.#seeding.set(key, n);
+      else {
+        this.#seeding.delete(key);
+        if (!this.#m.has(key)) this.#version.delete(key); // nothing cached: nothing to track
+      }
     }
-    if (!e) return false;
-    this.set(k, {
-      expiresAt: e.expiresAt,
-      creator: e.creator,
-      owner: e.owner,
-      flags: e.flags,
-    });
-    return true;
   }
 }
 
