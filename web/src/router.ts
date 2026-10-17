@@ -31,3 +31,11 @@ export function errorLine(e: unknown) {
   p.textContent = e instanceof Error ? e.message : String(e);
   return p;
 }
+
+// A link whose text is set as text, so on-chain strings can't inject markup.
+export function link(href: string, text: string) {
+  const a = document.createElement("a");
+  a.href = href;
+  a.textContent = text;
+  return a;
+}

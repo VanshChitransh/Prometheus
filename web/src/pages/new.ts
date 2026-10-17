@@ -12,26 +12,13 @@ import {
   decodeSubscription,
   keepBlocked,
 } from "../../../shared/subscription.ts";
-import {
-  BLOCKS_PER_MINUTE,
-  toDraft,
-  toParams,
-  type FormValues,
-} from "../entityForm.ts";
-import { errorLine } from "../router.ts";
+import { span, toDraft, toParams, type FormValues } from "../entityForm.ts";
+import { errorLine, link } from "../router.ts";
 import { reader, wallet } from "../wallet.ts";
 
 declare const __BOT_NAME__: string; // vite.config.ts
 
 const KEY = /^0x[0-9a-fA-F]{64}$/;
-
-// Blocks → "~5 min" / "~3 h" / "~2 d" (2 s per block).
-function span(blocks: bigint) {
-  const min = Number(blocks) / BLOCKS_PER_MINUTE;
-  if (min < 90) return `~${Math.max(1, Math.round(min))} min`;
-  if (min < 48 * 60) return `~${Math.round(min / 60)} h`;
-  return `~${Math.round(min / 1440)} d`;
-}
 
 const SKIP_TEXT = {
   not_permissionless:
@@ -170,12 +157,6 @@ export function newPage(el: HTMLElement) {
   };
 
   function showResult(key: Hex, label: string) {
-    const link = (href: string, text: string) => {
-      const a = document.createElement("a");
-      a.href = href;
-      a.textContent = text;
-      return a;
-    };
     const head = document.createElement("p");
     const code = document.createElement("code");
     code.textContent = key;
