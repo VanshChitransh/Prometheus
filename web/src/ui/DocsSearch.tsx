@@ -1,9 +1,10 @@
 // ⌘K docs search (planning/PLAN/09 §3): a modal over every docs section. Opens on ⌘K / Ctrl+K, "/", or
 // openSearch() from a button. Results are React text, so nothing in the docs is injected as HTML.
-import { Search } from "lucide-react";
+import { Search, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DOCS } from "../content.ts";
 import { indexDocs, search, termsOf, type Hit } from "../docsSearch.ts";
+import { askEnabled, openAsk } from "./AskPanel.tsx";
 import { cx } from "./kit.tsx";
 
 let index: ReturnType<typeof indexDocs> | undefined;
@@ -86,10 +87,17 @@ export function DocsSearch() {
       ?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
-  const pick = (h: Hit | undefined) => {
-    if (!h) return;
-    setOpen(false);
-    go(h);
+  // The last row hands the query to the docs assistant, for when the words aren't in any heading.
+  const askRow = askEnabled && q.trim() !== "";
+  const total = hits.length + (askRow ? 1 : 0);
+  const pick = (i: number) => {
+    if (i < hits.length) {
+      setOpen(false);
+      go(hits[i]!);
+    } else if (askRow) {
+      setOpen(false);
+      openAsk(q.trim());
+    }
   };
 
   return (
@@ -122,22 +130,20 @@ export function DocsSearch() {
             onKeyDown={(e) => {
               if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                 e.preventDefault();
-                const n = hits.length;
+                const n = total;
                 if (n)
                   setActive(
                     (a) => (a + (e.key === "ArrowDown" ? 1 : n - 1)) % n,
                   );
-              } else if (e.key === "Enter") pick(hits[active]);
+              } else if (e.key === "Enter") pick(active);
               else if (e.key === "Escape") setOpen(false);
             }}
             placeholder="Search the docs"
             aria-label="Search the docs"
             role="combobox"
-            aria-expanded={hits.length > 0}
+            aria-expanded={total > 0}
             aria-controls="docs-search-results"
-            aria-activedescendant={
-              hits.length ? `docs-hit-${active}` : undefined
-            }
+            aria-activedescendant={total ? `docs-hit-${active}` : undefined}
             className="h-14 min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-ink-3"
           />
           <kbd className="rounded-[6px] border border-sep px-1.5 py-0.5 font-mono text-[11px] text-ink-3">
@@ -145,11 +151,12 @@ export function DocsSearch() {
           </kbd>
         </label>
 
-        {q.trim() && !hits.length ? (
-          <p className="px-4 py-8 text-center text-[14px] text-ink-2">
+        {q.trim() && !hits.length && (
+          <p className="px-4 pt-6 pb-2 text-center text-[14px] text-ink-2">
             No section mentions “{q.trim()}”.
           </p>
-        ) : !q.trim() ? (
+        )}
+        {!q.trim() ? (
           <p className="px-4 py-8 text-center text-[14px] text-ink-3">
             Search every section of {DOCS.length} pages.
           </p>
@@ -168,7 +175,7 @@ export function DocsSearch() {
                 role="option"
                 aria-selected={i === active}
                 onPointerMove={() => setActive(i)}
-                onClick={() => pick(h)}
+                onClick={() => pick(i)}
                 className={cx(
                   "cursor-pointer rounded-[12px] px-3 py-2.5",
                   i === active && "bg-fill",
@@ -187,6 +194,25 @@ export function DocsSearch() {
                 )}
               </li>
             ))}
+            {askRow && (
+              <li
+                id={`docs-hit-${hits.length}`}
+                data-i={hits.length}
+                role="option"
+                aria-selected={active === hits.length}
+                onPointerMove={() => setActive(hits.length)}
+                onClick={() => pick(hits.length)}
+                className={cx(
+                  "flex cursor-pointer items-center gap-3 rounded-[12px] px-3 py-3",
+                  active === hits.length && "bg-fill",
+                )}
+              >
+                <Sparkles className="size-4 shrink-0 text-accent" aria-hidden />
+                <span className="min-w-0 truncate text-[15px]">
+                  Ask AI about “{q.trim()}”
+                </span>
+              </li>
+            )}
           </ul>
         )}
       </div>

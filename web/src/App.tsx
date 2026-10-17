@@ -26,6 +26,7 @@ import { Mine } from "./pages/Mine.tsx";
 import { New } from "./pages/New.tsx";
 import { Status } from "./pages/Status.tsx";
 import { tg } from "./telegram.ts";
+import { AskPanel } from "./ui/AskPanel.tsx";
 import { cx, ErrorText, LinkButton, Spark } from "./ui/kit.tsx";
 import { VoxelWord } from "./ui/VoxelWord.tsx";
 import { WalletMenu } from "./ui/WalletMenu.tsx";
@@ -62,13 +63,13 @@ const NAV: [string, string][] = [
   ["#/docs", "Docs"],
   ["#/docs/sdk", "SDK"],
   ["#/blog", "Blog"],
-  ["#/coverage", "Coverage"],
+  ["#/coverage", "Activity"],
 ];
 const APP_NAV: [string, string, LucideIcon][] = [
   ["#/", "Home", House],
   ["#/new", "New", PlusCircle],
   ["#/mine", "Subscriptions", ListChecks],
-  ["#/coverage", "Coverage", Activity],
+  ["#/coverage", "Activity", Activity],
 ];
 
 const hashPath = () => location.hash.slice(1) || "/";
@@ -242,6 +243,8 @@ export function App() {
           )}
         >
           {page}
+          {/* Outside the keyed page: the conversation survives moving between docs pages (cited links). */}
+          {path.startsWith("/docs") && <AskPanel />}
         </main>
 
         {!tg && <Footer />}
@@ -256,7 +259,7 @@ const FOOTER: [string, string][] = [
   ["#/docs", "Docs"],
   ["#/docs/sdk", "SDK"],
   ["#/blog", "Blog"],
-  ["#/coverage", "Coverage"],
+  ["#/coverage", "Activity"],
   ["#/docs/run-a-worker", "Run a worker"],
   ["https://github.com/VanshChitransh/Prometheus", "GitHub"],
 ];

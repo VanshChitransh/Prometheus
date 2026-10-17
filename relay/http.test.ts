@@ -167,3 +167,73 @@ test("/health doesn't cache a failed lookup", async () => {
     await s.close();
   }
 });
+
+test("/ask streams SSE deltas then [DONE]; a refusal is plain JSON; off without a handler", async () => {
+  let ip = "";
+  const s = await serve({
+    ask: (body, from) => {
+      ip = from;
+      if ((body as { no?: boolean }).no)
+        return { status: 429, body: { error: "slow down" } };
+      return {
+        stream: (async function* () {
+          yield "Hel";
+          yield "lo";
+        })(),
+      };
+    },
+  });
+  try {
+    const r = await fetch(`${s.url}/ask`, {
+      method: "POST",
+      headers: { "x-forwarded-for": "9.9.9.9, 10.0.0.1" },
+      body: JSON.stringify({ messages: [] }),
+    });
+    assert.equal(
+      r.headers.get("content-type"),
+      "text/event-stream; charset=utf-8",
+    );
+    assert.equal(
+      await r.text(),
+      'data: {"t":"Hel"}\n\ndata: {"t":"lo"}\n\ndata: [DONE]\n\n',
+    );
+    assert.equal(ip, "9.9.9.9");
+    const no = await fetch(`${s.url}/ask`, {
+      method: "POST",
+      body: JSON.stringify({ no: true }),
+    });
+    assert.equal(no.status, 429);
+    assert.deepEqual(await no.json(), { error: "slow down" });
+  } finally {
+    await s.close();
+  }
+  const off = await serve();
+  try {
+    const r = await fetch(`${off.url}/ask`, { method: "POST", body: "{}" });
+    assert.equal(r.status, 503);
+  } finally {
+    await off.close();
+  }
+});
+
+test("/ask: a failure mid-answer arrives as an error event", async () => {
+  const s = await serve({
+    ask: () => ({
+      stream: (async function* () {
+        yield "Hel";
+        throw new Error("boom");
+      })(),
+    }),
+  });
+  await quiet(async () => {
+    try {
+      const r = await fetch(`${s.url}/ask`, { method: "POST", body: "{}" });
+      assert.equal(
+        await r.text(),
+        'data: {"t":"Hel"}\n\ndata: {"error":"The assistant failed. Try again."}\n\n',
+      );
+    } finally {
+      await s.close();
+    }
+  });
+});

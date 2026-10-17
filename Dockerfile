@@ -12,5 +12,8 @@ COPY relay relay
 # docker build --build-arg GIT_SHA=$(git rev-parse --short HEAD) …
 ARG GIT_SHA
 ENV GIT_SHA=$GIT_SHA
+# The docs assistant (relay/ask.ts) answers from these.
+COPY web/docs web/docs
+COPY web/src/docsMeta.ts web/src/docsMeta.ts
 # Root on purpose: the state/ bind mount is root-owned. `node`, not `npm run`, so SIGTERM reaches it.
 CMD ["node", "relay/index.ts"]

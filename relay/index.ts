@@ -14,6 +14,7 @@ import { PROJECT } from "../shared/schema.ts";
 import { createBot } from "./bot.ts";
 import { openDb } from "./db.ts";
 import { startDelivery } from "./deliver.ts";
+import { createAsk, loadDocs, openRouterAnswer } from "./ask.ts";
 import { createHttpHandler } from "./http.ts";
 import { createSponsor } from "./sponsor.ts";
 
@@ -113,9 +114,24 @@ const workersAlive = async () => {
   return cfg.trustedWorkers.filter((_, i) => alive[i]);
 };
 
-const server = createServer(createHttpHandler({ sponsor, workersAlive }));
+// The docs assistant reads web/docs from the image (Dockerfile), so it answers from the docs of this deploy.
+const ask = cfg.openrouterKey
+  ? createAsk({
+      answer: openRouterAnswer(
+        cfg.openrouterKey,
+        loadDocs(new URL("../web/docs/", import.meta.url), cfg.webUrl),
+        cfg.askModels,
+      ),
+      dailyCap: cfg.askDailyCap,
+    })
+  : undefined;
+if (!ask) console.warn("[relay] OPENROUTER_API_KEY not set: POST /ask is off");
+
+const server = createServer(createHttpHandler({ sponsor, workersAlive, ask }));
 server.listen(cfg.port, () =>
-  console.log(`[relay] http on :${cfg.port} (GET /health, POST /sponsor)`),
+  console.log(
+    `[relay] http on :${cfg.port} (GET /health, POST /sponsor, POST /ask)`,
+  ),
 );
 
 // Graceful: stop taking updates and events, let the delivery chain, checkpoint and queued DMs

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { DOCS, DOCS_NAV, docBySlug, render } from "../content.ts";
+import { askEnabled } from "../ui/AskPanel.tsx";
 import { DocsSearch, openSearch, searchKey } from "../ui/DocsSearch.tsx";
 import { cx } from "../ui/kit.tsx";
 
@@ -31,7 +32,11 @@ export function Docs({ params: [slug] }: { params: string[] }) {
       <Sidebar current={doc.slug} />
       <DocsSearch />
 
-      <article className="min-w-0" data-doc={doc.slug}>
+      {/* bottom padding: room for the pinned "Ask the docs" bar */}
+      <article
+        className={cx("min-w-0", askEnabled && "pb-20")}
+        data-doc={doc.slug}
+      >
         <div className="font-mono text-[11px] tracking-[0.08em] text-ink-3 uppercase">
           {doc.section}
         </div>

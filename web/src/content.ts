@@ -114,7 +114,7 @@ const decode = (t: string) =>
 function route(href: string) {
   const doc =
     /^(?:\.\/|\/docs\/)?([a-z0-9-]+)\.md(?:#.*)?$/.exec(href) ??
-    /^\/docs\/([a-z0-9-]+)\/?$/.exec(href);
+    /^\/docs\/([a-z0-9-]+)\/?(?:#.*)?$/.exec(href);
   if (doc) return `#/docs/${doc[1]}`;
   const post = /^\/blog\/([a-z0-9-]+)\/?$/.exec(href);
   if (post) return `#/blog/${post[1]}`;
@@ -154,3 +154,25 @@ export function render(markdown: string) {
   const html = md.parse(markdown.replaceAll("<site>", SITE), { async: false });
   return { html, headings };
 }
+
+// The docs assistant's answers. Unlike the docs, this text comes from a model, so it isn't trusted:
+// raw HTML shows as text, images as their alt text, and a link only works if it goes to one of our
+// routes or to http(s). Everything else marked escapes itself.
+const esc = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const answerMd = new Marked({
+  gfm: true,
+  renderer: {
+    html: ({ text }) => esc(text),
+    image: ({ text }) => esc(text),
+    link({ href, tokens }) {
+      const inner = this.parser.parseInline(tokens);
+      const to = route(href);
+      if (!/^(#\/|https?:\/\/)/.test(to)) return inner;
+      const external = to.startsWith("http");
+      return `<a href="${esc(to)}"${external ? ' target="_blank" rel="noreferrer"' : ""}>${inner}</a>`;
+    },
+  },
+});
+export const renderAnswer = (markdown: string) =>
+  answerMd.parse(markdown, { async: false });

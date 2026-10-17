@@ -92,17 +92,17 @@ Not renewed by block 1234867.
 
 Every headline you can get:
 
-| Headline          | Meaning                                                                                                        |
-| ----------------- | -------------------------------------------------------------------------------------------------------------- |
-| 🟠 EXPIRING SOON  | The entity expires soon. Your warning time has been reached.                                                   |
-| 🔴 EXPIRED        | The entity expired without being renewed.                                                                      |
-| ✏️ CHANGED        | The entity was edited.                                                                                         |
-| 👤 OWNER CHANGED  | The entity has a new owner.                                                                                    |
-| 🗑 DELETED         | The entity was deleted.                                                                                        |
-| 🆕 NEW MATCH      | A new entity matching your search was created.                                                                 |
-| ✅ RENEWED        | Prometheus renewed the entity.                                                                                 |
-| ⏭ RENEWAL SKIPPED | Prometheus didn't renew it. The message gives the reason, for example "deny listed" for a canary or heartbeat. |
-| ⚠️ RENEWAL FAILED | Arkiv refused the renewal. The message gives the reason.                                                       |
+| Headline | Meaning |
+| --- | --- |
+| <span class="alert-tag warn">EXPIRING SOON</span> | The entity expires soon. Your warning time has been reached. |
+| <span class="alert-tag bad">EXPIRED</span> | The entity expired without being renewed. |
+| <span class="alert-tag info">CHANGED</span> | The entity was edited. |
+| <span class="alert-tag info">OWNER CHANGED</span> | The entity has a new owner. |
+| <span class="alert-tag bad">DELETED</span> | The entity was deleted. |
+| <span class="alert-tag info">NEW MATCH</span> | A new entity matching your search was created. |
+| <span class="alert-tag ok">RENEWED</span> | Prometheus renewed the entity. |
+| <span class="alert-tag info">RENEWAL SKIPPED</span> | Prometheus didn't renew it. The message gives the reason, for example "deny listed" for a canary or heartbeat. |
+| <span class="alert-tag bad">RENEWAL FAILED</span> | Arkiv refused the renewal. The message gives the reason. |
 
 Each subscription sends at most 20 alerts per day (UTC). Renewals don't count toward that limit.
 

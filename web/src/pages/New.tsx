@@ -42,11 +42,12 @@ import {
   Segmented,
   Stepper,
   Switch,
+  useLoad,
 } from "../ui/kit.tsx";
 import { LiveRuler } from "../ui/Ruler.tsx";
-import { openWallet } from "../ui/WalletMenu.tsx";
+import { Funding, openWallet } from "../ui/WalletMenu.tsx";
 import { SearchBuilder, type SearchChoice } from "../ui/SearchBuilder.tsx";
-import { reader } from "../wallet.ts";
+import { balance, reader } from "../wallet.ts";
 import { TriggerGlyph } from "../ui/TriggerGlyph.tsx";
 import { BOT } from "./Home.tsx";
 
@@ -203,6 +204,21 @@ export function New({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v, choice, wallet?.address]);
 
+  // On the sign step, an empty wallet gets the funding prompt before it can fail. Unread counts as funded.
+  const signing = step === 3 && !!wallet;
+  const bal = useLoad(
+    async () => (signing ? balance(wallet!.address) : undefined),
+    [signing, wallet?.address],
+  );
+  const unfunded = signing && bal.data === 0n;
+  // The faucet opens in a new tab: re-read when the user comes back.
+  useEffect(() => {
+    if (!signing) return;
+    addEventListener("focus", bal.reload);
+    return () => removeEventListener("focus", bal.reload);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signing]);
+
   async function submit() {
     setBusy(true);
     setProblem(undefined);
@@ -222,7 +238,7 @@ export function New({
         );
       if ((await reader.getBalance({ address: wallet.address })) === 0n)
         throw new Error(
-          "This wallet has no GLM, and creating a subscription costs gas. Open the wallet menu to get some.",
+          "This wallet has no GLM yet, and creating a subscription costs gas. Get some above, then sign.",
         );
       const { entityKey } = await wallet.client.createEntity(
         toParams(ok.draft, ok.fv.termDays),
@@ -421,12 +437,13 @@ export function New({
         </Group>
       </details>
       {problem !== undefined && <ErrorText error={problem} />}
+      {unfunded && <Funding address={wallet.address} onFunded={bal.reload} />}
       <Button
         variant="primary"
         size="lg"
         className="w-full sm:w-auto"
         // No wallet yet: the button opens the wallet menu instead of failing.
-        disabled={busy || (!!wallet && !!check.blocker)}
+        disabled={busy || unfunded || (!!wallet && !!check.blocker)}
         onClick={wallet ? submit : openWallet}
       >
         {busy

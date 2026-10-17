@@ -188,6 +188,28 @@
   .prose ol,
   .prose pre,
   .prose table,
+  /* Alert headlines in docs tables (quickstart-telegram.md): a tone dot, not an emoji. */
+  .prose .alert-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--ink);
+  }
+  .prose .alert-tag::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--tone, var(--ink-3));
+  }
+  .prose .alert-tag.ok { --tone: var(--ok); }
+  .prose .alert-tag.warn { --tone: var(--warn); }
+  .prose .alert-tag.bad { --tone: var(--bad); }
   .prose blockquote {
     margin: 1em 0;
   }
@@ -276,6 +298,27 @@
     border: 0;
     border-top: 1px solid var(--sep);
     margin: 2.5em 0;
+  }
+  /* Docs assistant answers (ui/AskPanel.tsx): the same prose, sized for a 440px panel. */
+  .prose-chat {
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .prose-chat h1,
+  .prose-chat h2,
+  .prose-chat h3 {
+    font-size: 16px;
+    margin: 1.2em 0 0.4em;
+  }
+  .prose-chat pre {
+    font-size: 12px;
+  }
+  .prose-chat table {
+    display: block;
+    overflow-x: auto;
+  }
+  .prose-chat p {
+    margin: 0.6em 0;
   }
 }
 

@@ -5,9 +5,10 @@ import type { Receipt } from "../../shared/receipt.ts";
 import type { Sub } from "../../shared/subscription.ts";
 import {
   expiredGaps,
+  firstLate,
   groupByTrigger,
-  rowStatus,
   summarize,
+  typicalLate,
 } from "./coverage.ts";
 
 const A: Hex = "0x6a693Fd642c1F8F5E78321C2722208A3791eE79B";
@@ -33,8 +34,9 @@ const receipt = (
   ...o,
 });
 
-test("a duplicate A+B receipt is one row with two workers", () => {
-  const rows = groupByTrigger([receipt(A, 10, 0), receipt(B, 10, 16)]);
+test("a duplicate A+B receipt is one row with two workers, linked to the first receipt", () => {
+  const a = receipt(A, 10, 0);
+  const rows = groupByTrigger([a, receipt(B, 10, 16)]);
   assert.equal(rows.length, 1);
   assert.deepEqual(
     [...rows[0].late],
@@ -43,18 +45,23 @@ test("a duplicate A+B receipt is one row with two workers", () => {
       [B, 16n],
     ],
   );
-  assert.equal(rowStatus(rows[0], TRUSTED), "delivered twice");
+  assert.equal(rows[0].key, a.key);
+  assert.equal(firstLate(rows[0]), 0n);
 });
 
-test("rows are newest first and classed normal / covered by B", () => {
-  const rows = groupByTrigger([receipt(A, 10, 1), receipt(B, 20, 15)]);
+test("rows are newest first; the typical delay is the median first delivery", () => {
+  const rows = groupByTrigger([
+    receipt(A, 10, 1),
+    receipt(B, 20, 15),
+    receipt(A, 30, 3),
+    receipt(B, 30, 18),
+  ]);
   assert.deepEqual(
-    rows.map((r) => [r.triggerBlock, rowStatus(r, TRUSTED)]),
-    [
-      [20n, "covered by B"],
-      [10n, "normal"],
-    ],
+    rows.map((r) => r.triggerBlock),
+    [30n, 20n, 10n],
   );
+  assert.equal(typicalLate(rows), 3n);
+  assert.equal(typicalLate([]), undefined);
 });
 
 test("per-worker conditions are not deliveries", () => {
@@ -69,41 +76,29 @@ test("per-worker conditions are not deliveries", () => {
   );
 });
 
-test("A offline after a failover: 'A offline · N covered by B'", () => {
+test("per-worker stats: deliveries, sole deliveries, lateness, low funds", () => {
   const rs = [
     receipt(A, 10, 0),
     receipt(B, 20, 15),
     receipt(B, 30, 17),
     receipt(A, 40, 0, { event: "keeper_low_funds" }),
   ];
-  const rows = groupByTrigger(rs);
-  const { headline, workers } = summarize(rs, rows, TRUSTED, [false, true]);
-  assert.equal(headline, "A offline · 2 covered by B");
+  const workers = summarize(rs, groupByTrigger(rs), TRUSTED, [false, true]);
   assert.deepEqual(
-    workers.map((w) => [w.name, w.delivered, w.only, w.medianLate, w.maxLate]),
+    workers.map((w) => [
+      w.name,
+      w.live,
+      w.delivered,
+      w.only,
+      w.medianLate,
+      w.maxLate,
+    ]),
     [
-      ["A", 1, 1, 0n, 0n],
-      ["B", 2, 2, 15n, 17n],
+      ["A", false, 1, 1, 0n, 0n],
+      ["B", true, 2, 2, 15n, 17n],
     ],
   );
   assert.equal(workers[0].lowFunds, true);
-});
-
-test("headline when all live, when B is down, and when none is", () => {
-  const rs = [receipt(A, 10, 0), receipt(A, 20, 0), receipt(B, 20, 15)];
-  const rows = groupByTrigger(rs);
-  assert.equal(
-    summarize(rs, rows, TRUSTED, [true, true]).headline,
-    "All 2 workers live · 2 triggers in 24 h · 0 covered by failover · 1 delivered twice",
-  );
-  assert.equal(
-    summarize(rs, rows, TRUSTED, [true, false]).headline,
-    "B offline · no failover backup",
-  );
-  assert.equal(
-    summarize(rs, rows, TRUSTED, [false, false]).headline,
-    "No worker is live: nothing is being delivered",
-  );
 });
 
 test("a gap is a gone target with no expired receipt", () => {
