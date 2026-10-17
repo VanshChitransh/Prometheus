@@ -14,6 +14,7 @@ import {
 } from "../../../shared/subscription.ts";
 import { span, toDraft, toParams, type FormValues } from "../entityForm.ts";
 import { errorLine, link } from "../router.ts";
+import { searchBuilder, type SearchChoice } from "../searchBuilder.ts";
 import { reader, wallet } from "../wallet.ts";
 
 declare const __BOT_NAME__: string; // vite.config.ts
@@ -31,15 +32,19 @@ export function newPage(el: HTMLElement) {
   el.innerHTML = `
     <h2>New subscription</h2>
     <form>
-      <p><label>Entity to watch (its key)<br />
-        <input name="target" placeholder="0x…" size="68" autocomplete="off" /></label></p>
-      <p class="note" id="preview"></p>
       <p><label>Do this<br /><select name="trigger">
         <option value="expiring">Warn me before it expires</option>
         <option value="expired">Tell me when it has expired</option>
         <option value="changed">Tell me when it changes, changes owner or is deleted</option>
         <option value="keep">Keep it alive: renew it before it expires</option>
+        <option value="new_match">Tell me when a new matching record appears</option>
       </select></label></p>
+      <div data-for="expiring expired changed keep">
+        <p><label>Entity to watch (its key)<br />
+          <input name="target" placeholder="0x…" size="68" autocomplete="off" /></label></p>
+        <p class="note" id="preview"></p>
+      </div>
+      <div data-for="new_match" id="search"></div>
       <p data-for="expiring keep"><label>Minutes before expiry<br />
         <input name="lead" type="number" min="1" max="1440" value="10" /></label></p>
       <p data-for="keep"><label>Hours added per renewal<br />
@@ -62,6 +67,7 @@ export function newPage(el: HTMLElement) {
   const problem = el.querySelector<HTMLElement>("#problem")!;
   const result = el.querySelector<HTMLElement>("#result")!;
   const button = form.querySelector("button")!;
+  let choice: SearchChoice = {};
 
   const values = (): FormValues => ({
     trigger: field("trigger").value as Trigger,
@@ -71,6 +77,7 @@ export function newPage(el: HTMLElement) {
     termDays: Number(field("term").value),
     label: field("label").value,
     publicMonitor: field("public").checked,
+    ...choice,
   });
 
   // The target read is cached per key: it's free, but not worth one per keystroke.
@@ -85,7 +92,7 @@ export function newPage(el: HTMLElement) {
       p.hidden = !p.dataset.for!.split(" ").includes(v.trigger);
 
     const head = await reader.getBlockNumber();
-    const k = v.targetKey.trim();
+    const k = v.trigger === "new_match" ? "" : v.targetKey.trim();
     if (KEY.test(k) && target?.key !== k)
       target = { key: k, entity: await rawGetEntity(reader, k as Hex) };
     if (mine !== seq) return; // a newer check is running; let it render
@@ -95,7 +102,12 @@ export function newPage(el: HTMLElement) {
     const t = KEY.test(k) && target?.key === k ? target.entity : undefined;
 
     const notes: string[] = [];
-    let blocker = d.ok ? "" : d.reason;
+    let blocker =
+      v.trigger === "new_match" && !v.search
+        ? "Paste an example record and tick at least one attribute."
+        : d.ok
+          ? ""
+          : d.reason;
     if (t === null) blocker ||= "No live entity has that key.";
     if (t) {
       const left = t.expiresAt - head;
@@ -118,10 +130,15 @@ export function newPage(el: HTMLElement) {
   const rerun = () =>
     void check().catch((e) => problem.replaceChildren(errorLine(e)));
   let timer: ReturnType<typeof setTimeout>;
-  form.oninput = () => {
+  const schedule = () => {
     clearTimeout(timer);
     timer = setTimeout(rerun, 300);
   };
+  form.oninput = schedule;
+  searchBuilder(el.querySelector<HTMLElement>("#search")!, (c) => {
+    choice = c;
+    schedule();
+  });
   rerun();
 
   form.onsubmit = async (ev) => {
