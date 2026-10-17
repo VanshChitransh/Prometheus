@@ -5,14 +5,9 @@ import type { PublicArkivClient } from "@arkiv-network/sdk";
 import { ExpirationTime } from "@arkiv-network/sdk/utils";
 import { parseEther, type Hex } from "viem";
 import { rawGetEntity } from "../shared/arkiv.ts";
-import {
-  DENY_LIST,
-  KEEP_BUDGET_PER_DAY,
-  PROJECT,
-  type Event,
-} from "../shared/schema.ts";
+import { KEEP_BUDGET_PER_DAY, type Event } from "../shared/schema.ts";
 import { triggerId } from "../shared/triggerId.ts";
-import type { Sub } from "../shared/subscription.ts";
+import { keepBlocked, type Sub } from "../shared/subscription.ts";
 import type { Targets } from "./expiry.ts";
 import { receiptCreate, type Seen } from "./receipts.ts";
 import type { Writer } from "./writer.ts";
@@ -119,16 +114,9 @@ export class Keeper {
         cached && { creator: cached.creator, owner: cached.owner },
       );
     const seen = { creator: e.creator, owner: e.owner };
-    if (!e.flags.permissionlessExtension)
-      return skip("not_permissionless", seen);
-    // Rule 3. ponytail: a name heuristic (nothing on chain marks a canary); the owner's real
-    // protection is creating it without permissionlessExtension (LLD §3.6, known limit).
-    // Our own entities too: two public subscriptions keeping each other alive would never end.
-    if (
-      e.attributes.project === PROJECT ||
-      DENY_LIST.test(`${e.attributes.kind ?? ""} ${e.attributes.project ?? ""}`)
-    )
-      return skip("deny_listed", seen);
+    // Rules 2 and 3 on the live copy.
+    const blocked = keepBlocked(e);
+    if (blocked) return skip(blocked, seen);
     // Rule 4: someone already extended it past this trigger's window.
     const expSeen = e.expiresAt;
     if (expSeen > k.head + k.sub.leadBlocks!)

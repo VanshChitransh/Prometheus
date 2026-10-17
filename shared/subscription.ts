@@ -5,7 +5,14 @@
 import type { Expression } from "@arkiv-network/sdk/query";
 import { checksumAddress, hexToString, type Hex } from "viem";
 import type { RawEntity } from "./arkiv.ts";
-import { BOUNDS, PROJECT, TRIGGERS, type Trigger } from "./schema.ts";
+import {
+  BOUNDS,
+  DENY_LIST,
+  PROJECT,
+  TRIGGERS,
+  type KeepSkipReason,
+  type Trigger,
+} from "./schema.ts";
 import { parseSearch } from "./searchAst.ts";
 
 export type Sub = {
@@ -125,4 +132,22 @@ function decode(e: RawEntity): Sub {
     keepBlocks: trigger === "keep" ? keep : undefined,
     search: trigger === "new_match" ? parseSearch(p.search) : undefined,
   };
+}
+
+// Why the keeper would refuse to extend this target, or null (LLD §3.6 rules 2–3). Here, not in the
+// keeper, so the web preview and the worker can never disagree. Rule 4 (already extended) depends on
+// the trigger's head, so it stays in the keeper.
+export function keepBlocked(
+  e: RawEntity,
+): Extract<KeepSkipReason, "not_permissionless" | "deny_listed"> | null {
+  if (!e.flags.permissionlessExtension) return "not_permissionless";
+  // ponytail: a name heuristic (nothing on chain marks a canary); the owner's real protection is
+  // creating it without permissionlessExtension (LLD §3.6, known limit).
+  // Our own entities too: two public subscriptions keeping each other alive would never end.
+  if (
+    e.attributes.project === PROJECT ||
+    DENY_LIST.test(`${e.attributes.kind ?? ""} ${e.attributes.project ?? ""}`)
+  )
+    return "deny_listed";
+  return null;
 }
