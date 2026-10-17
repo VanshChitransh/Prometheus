@@ -1,6 +1,6 @@
 # Arkiv friction log
 
-Measured 15–16 Oct 2026. Environment for every entry unless noted: Tiramisu testnet, `@arkiv-network/sdk` 0.8.1, `viem` 2.57.7, Node 24.10.0, macOS. Probe script: [`scripts/probe.ts`](../scripts/probe.ts) (`npm run probe`).
+Measured 15–17 Oct 2026. Environment for every entry unless noted: Tiramisu testnet, `@arkiv-network/sdk` 0.8.1, `viem` 2.57.7, Node 24.10.0, macOS. Probe script: [`scripts/probe.ts`](../scripts/probe.ts) (`npm run probe`).
 
 ---
 
@@ -24,6 +24,33 @@ Measured 15–16 Oct 2026. Environment for every entry unless noted: Tiramisu te
 - **Expected:** a way to fund a wallet that only exists as a private key in `.env`.
 - **Actual:** the faucet requires connecting a browser wallet (sign-in message) plus a CAPTCHA; one claim per wallet per hour. There is no CLI or API path.
 - **Workaround:** import one key into MetaMask, claim 10 GLM once, then fan out to the other wallets with `cast send`.
+
+## 4. A filtered count needs the raw RPC: the SDK's `getEntityCount()` takes no query
+
+- **Expected:** counts are free, so "did a worker already write this receipt?" is one `getEntityCount(query)`.
+- **Actual:** SDK 0.8.1's `getEntityCount()` takes no arguments and returns the chain-wide total, and `ArkivRpcSchema` types `arkiv_getEntityCount` with no parameters. The node does accept `arkiv_getEntityCount [{ "query": "…" }]` and returns the filtered count with no `arkiv-cost` header (measured 16 Oct).
+- **Impact:** our dedupe, daily-cap and liveness counts go through a cast on `client.request` (`freeCount` in [`shared/arkiv.ts`](../shared/arkiv.ts)).
+
+## 5. `arkiv_getEntityCount` ignores `atBlock`
+
+- **Expected:** like a query, a count can be asked "as of block N", so a replayed event is checked against the state at its own block.
+- **Actual:** the count always reflects the current head (measured 17 Oct).
+- **Impact:** a `new_match` event replayed after a restart is counted against today's state. Live counts wait until the HTTP node has reached the event's block.
+
+## 6. Live events can't use the access key, and need their own catch-up
+
+- **Expected:** an authenticated, filterable stream of entity events that survives a reconnect.
+- **Actual:**
+  - The access key travels only as the `X-API-KEY` header, and viem's `webSocket` transport can't set headers, so subscriptions run on the anonymous quota.
+  - `watchEntityEvents` takes no filter: every entity event on the chain arrives, and we filter for our workers' entities ourselves. Passing `fromBlock` switches it from push to polling.
+  - After a reconnect, viem restores the subscriptions but doesn't backfill the gap (measured 16 Oct). SDK 0.8.1 doesn't export the entity contract's address (`0x4400…0044`), so our `eth_getLogs` replay hard-codes it and mirrors the SDK's event decoding.
+- **Impact:** every app that must not miss an event writes its own stall timer, buffer, checkpoint and replay ([`shared/stream.ts`](../shared/stream.ts), [`shared/replay.ts`](../shared/replay.ts)).
+
+## 7. The Tiramisu chain definition has no `blockTime`
+
+- **Expected:** the SDK's `tiramisu` chain tells viem it makes a block every 2 s.
+- **Actual:** `tiramisu.blockTime` is `undefined`, so viem assumes its 4 s default: it polls every 4 s and caches `getBlockNumber` for 4 s, and a head read can lag about 2 blocks (measured 17 Oct).
+- **Workaround:** `cacheTime: 0` on our HTTP read client.
 
 ---
 
