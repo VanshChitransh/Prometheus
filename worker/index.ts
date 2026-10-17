@@ -9,7 +9,7 @@ import { startHeartbeat } from "./heartbeat.ts";
 import { Keeper } from "./keeper.ts";
 import { Receipts } from "./receipts.ts";
 import { rebuildDayCounts, seedTargets, startResync } from "./startup.ts";
-import { startStream } from "./stream.ts";
+import { startStream } from "../shared/stream.ts";
 import { discoverAll } from "./subs.ts";
 import { Writer } from "./writer.ts";
 

@@ -1,14 +1,15 @@
-// The worker's ears (LLD §3.3 "Streams", §3.2 step 4): live entity events and block heads over one
-// WebSocket, and a buffered catch-up from the checkpoint whenever the feed may have a hole (start, a
-// socket error, a stall), so neither a reconnect nor a restart leaves a gap. Node only.
+// The ears of the worker and the relay (LLD §3.3 "Streams", §3.2 step 4, §6.4.7): live entity
+// events and block heads over one WebSocket, and a buffered catch-up from the checkpoint whenever the
+// feed may have a hole (start, a socket error, a stall), so neither a reconnect nor a restart leaves
+// a gap. Node only.
 import {
   decodeCreationFlags,
   ENTITY_EVENTS_ABI,
   type EntityEvent,
   type PublicArkivClient,
 } from "@arkiv-network/sdk";
-import type { publicWs } from "../shared/arkiv.ts";
-import { replayEntityRanges, SeenLogs } from "../shared/replay.ts";
+import type { publicWs } from "./arkiv.ts";
+import { replayEntityRanges, SeenLogs } from "./replay.ts";
 
 // The system contract that emits every entity event. SDK 0.8.1 doesn't export its ARKIV_ADDRESS.
 const ARKIV_ADDRESS = "0x4400000000000000000000000000000000000044";
