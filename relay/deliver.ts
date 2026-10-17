@@ -276,5 +276,8 @@ export async function startDelivery(o: {
     stopped = true;
     stopStream();
     await chain;
+    // The DMs already queued go out before the DB closes, so a redeploy doesn't drop them (audit
+    // RL-7). index.ts caps the wait at 5 s; a DM still backing off then is lost, as in a crash.
+    await queue.idle();
   };
 }
