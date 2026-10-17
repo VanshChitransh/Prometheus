@@ -10,9 +10,11 @@ import { tiramisu } from "@arkiv-network/sdk/chains";
 import {
   BaseError,
   checksumAddress,
+  custom,
   http,
   publicActions,
   webSocket,
+  type EIP1193Provider,
   type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -52,6 +54,14 @@ export const walletClient = (
     chain: tiramisu,
     transport: httpTransport(url, accessKey),
     account: privateKeyToAccount(privateKey),
+  });
+
+// A browser wallet (MetaMask) holds the key and signs; the page only knows the address.
+export const injectedWalletClient = (provider: EIP1193Provider, address: Hex) =>
+  createWalletClient({
+    chain: tiramisu,
+    transport: custom(provider),
+    account: address,
   });
 
 // `code` is the JSON-RPC error code (e.g. -32602) or, for HTTP failures, the status (e.g. 429).
