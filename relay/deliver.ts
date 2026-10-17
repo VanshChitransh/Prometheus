@@ -12,11 +12,7 @@ import {
   parseReceipt,
   type Receipt as ParsedReceipt,
 } from "../shared/receipt.ts";
-import {
-  loadCheckpoint,
-  oneHourBack,
-  saveCheckpoint,
-} from "../shared/replay.ts";
+import { saveCheckpoint, startBlock } from "../shared/replay.ts";
 import type { Event } from "../shared/schema.ts";
 import { startStream, type StreamOptions } from "../shared/stream.ts";
 import { decodeSubscription } from "../shared/subscription.ts";
@@ -220,10 +216,11 @@ export async function startDelivery(o: {
   send: (chatId: number, text: string) => Promise<unknown>;
 }) {
   await mkdir(dirname(o.checkpointFile), { recursive: true });
-  // First boot: one hour back, like the worker (LLD §3.2 step 1).
-  let checkpoint =
-    (await loadCheckpoint(o.checkpointFile)) ??
-    oneHourBack(await o.http.getBlockNumber());
+  // First boot or a testnet wipe: one hour back, like the worker (LLD §3.2 step 1).
+  let { block: checkpoint } = await startBlock(
+    o.checkpointFile,
+    await o.http.getBlockNumber(),
+  );
   const queue = createSendQueue({ send: o.send });
   const handle = createHandler({
     client: o.http,
