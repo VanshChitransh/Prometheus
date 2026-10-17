@@ -640,6 +640,7 @@ test("a new expiring subscription on a target that doesn't exist is rejected (LL
   } as EntityEvent);
   await d.settle(10n);
   assert.equal(subs.get(NEW_SUB), undefined);
+  assert.equal(subs.removed.size, 0); // not a deletion: the re-sync may still serve it (WK-6)
 });
 
 test("counts wait until the HTTP node has the event's block (M7)", async () => {
@@ -763,4 +764,61 @@ test("an expired subscription arriving live for a lapsed target is armed at once
   assert.equal(subs.get(subKey)?.trigger, "expired");
   assert.equal(targets.get(lapsed)?.gone, true); // the monitor fires `expired` on the next head
   assert.equal(targets.get(lapsed)?.expiresAt, 400n);
+});
+
+// WK-6: a new subscription's target is being read when the target's ExpiryExtended lands. The read
+// used to give up ("changed meanwhile, nothing cached"), so a valid subscription was rejected, and
+// marked removed, so the next re-sync dropped it too.
+test("an extension landing during a new subscription's target read doesn't reject it (WK-6)", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let reading!: () => void;
+  const started = new Promise<void>((r) => (reading = r));
+  let targetReads = 0;
+  const pub = {
+    request: async ({
+      method,
+      params,
+    }: {
+      method: string;
+      params: unknown[];
+    }) => {
+      if (method === "arkiv_getEntityCount") return 1;
+      if (params[0] === NEW_SUB) return rpcSub(NEW_SUB, "new");
+      if (targetReads++ === 0) {
+        reading();
+        await gate; // the first read of the target is slow
+      }
+      return rpcTarget;
+    },
+  };
+  const subs = new SubsIndex();
+  const targets = new Targets();
+  const d = createDispatch({
+    ...NO_FIRE,
+    pub: pub as never,
+    subs: () => subs,
+    targets,
+  });
+  d.onEvent({
+    ...created(NEW_SUB),
+    blockNumber: 10n,
+    transactionHash: hex(9),
+    logIndex: 0,
+  } as EntityEvent);
+  await started;
+  d.onEvent({
+    type: "ExpiryExtended",
+    entityKey: TARGET,
+    owner: OWNER,
+    expiresAt: 6_000n,
+    blockNumber: 11n,
+    transactionHash: hex(10),
+    logIndex: 0,
+  } as EntityEvent);
+  release();
+  await d.settle(11n);
+  assert.ok(subs.get(NEW_SUB));
+  assert.ok(targets.get(TARGET)); // read again, and cached
+  assert.equal(subs.removed.size, 0);
 });

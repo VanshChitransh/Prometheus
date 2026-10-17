@@ -121,11 +121,14 @@ export async function seedGone(
 // (a re-read fixes drifted expiries). Gone → cached as gone at its real expiry block, so the monitor
 // fires `expired`; a target already known to be gone isn't looked up again. Then the per-creator
 // cap, so a creator's dead subscriptions don't hold the slots of live ones (WK-1).
+// keepChanged (start-up only): the catch-up replay that follows may still hold a dead target's
+// deletion, and its `changed` subscriptions must be there to alert on it; the re-sync drops them.
 export async function seedTargets(
   pub: PublicArkivClient,
   subs: SubsIndex,
   targets: Targets,
   head: bigint,
+  { keepChanged = false } = {},
 ) {
   const watched = new Set(
     subs
@@ -148,7 +151,9 @@ export async function seedTargets(
   let rejected = 0;
   for (const s of subs.all()) {
     const t = s.targetKey && targets.get(s.targetKey);
-    if (s.targetKey && s.trigger !== "expired" && (!t || t.gone)) {
+    const spared =
+      s.trigger === "expired" || (keepChanged && s.trigger === "changed");
+    if (s.targetKey && !spared && (!t || t.gone)) {
       subs.remove(s.key);
       rejected++;
     }

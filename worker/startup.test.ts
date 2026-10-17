@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ENTITY_EVENTS_ABI } from "@arkiv-network/sdk";
+import { ENTITY_EVENTS_ABI, type EntityEvent } from "@arkiv-network/sdk";
 import {
   encodeAbiParameters,
   encodeEventTopics,
@@ -9,6 +9,7 @@ import {
   type Hex,
 } from "viem";
 import type { Sub } from "../shared/subscription.ts";
+import { createDispatch } from "./events.ts";
 import { Targets } from "./expiry.ts";
 import {
   dayStartBlock,
@@ -332,4 +333,39 @@ test("the cap keeps the same 20 oldest live subscriptions whatever order discove
     many.slice(0, 20).map(({ n }) => hex(n)),
   );
   assert.deepEqual(await served([...many].reverse()), a);
+});
+
+// WK-3: start-up seeding runs before the catch-up replay. A `changed` subscription whose target was
+// deleted while we were down used to be dropped first, so its replayed EntityDeleted alerted nobody.
+test("a changed sub outlives the start-up prune for its replayed delete; the re-sync drops it (WK-3)", async () => {
+  const watch = sub(1, { trigger: "changed" });
+  const k = watch.targetKey!;
+  const s = index(watch);
+  const { pub } = node({ logs: { [k]: [created(k, 9_000n), deleted(k)] } });
+  await seedTargets(pub, s, new Targets(), 1_000n, { keepChanged: true }); // as index.ts does
+  const fired: string[] = [];
+  const d = createDispatch({
+    pub,
+    subs: () => s,
+    targets: new Targets(),
+    receipts: {
+      fire: async (_s, _k, event, block) => (
+        fired.push(`${event}@${block}`),
+        "done" as const
+      ),
+    },
+    trustedWorkers: [],
+  });
+  d.onEvent({
+    type: "EntityDeleted",
+    entityKey: k,
+    owner: OWNER,
+    blockNumber: 150n,
+    transactionHash: hex(9),
+    logIndex: 0,
+  } as EntityEvent);
+  await d.settle(150n);
+  assert.deepEqual(fired, ["deleted@150"]);
+  await seedTargets(pub, s, new Targets(), 1_000n); // the hourly re-sync: nothing left to watch
+  assert.equal(s.size, 0);
 });
