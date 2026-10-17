@@ -57,6 +57,16 @@ test("parseReceipt trusts only a worker-created prometheus receipt", () => {
   );
 });
 
+test("parseReceipt refuses an unknown event and trusts addresses in any case", () => {
+  // Every reader looks the event up in a table (the web's styles crashed on one it didn't know).
+  assert.equal(
+    parseReceipt(raw(A, receiptAttrs({ event: "bogus" })), TRUSTED),
+    null,
+  );
+  const lower = TRUSTED.map((a) => a.toLowerCase() as Hex);
+  assert.equal(parseReceipt(raw(A, receiptAttrs()), lower)?.creator, A);
+});
+
 test("parseReceipt reads the note and survives a broken payload", () => {
   const note = parseReceipt(
     raw(A, receiptAttrs({ event: "keep_skipped" }), {

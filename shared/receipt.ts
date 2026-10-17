@@ -2,7 +2,7 @@
 // relay's DMs, the status page and the coverage page all read receipts through this one function.
 import { hexToString, type Hex } from "viem";
 import type { RawEntity } from "./arkiv.ts";
-import { PROJECT, type Event } from "./schema.ts";
+import { EVENTS, PROJECT, type Event } from "./schema.ts";
 
 export type Receipt = {
   key: Hex;
@@ -27,7 +27,9 @@ export function parseReceipt(
   trusted: readonly Hex[],
 ): Receipt | null {
   const a = e.attributes;
-  if (!trusted.includes(e.creator)) return null; // both sides checksummed (config.ts, arkiv.ts)
+  // Any letter case: a caller with a lowercase list silently matched nothing.
+  const creator = e.creator.toLowerCase();
+  if (!trusted.some((w) => w.toLowerCase() === creator)) return null;
   if (a.project !== PROJECT || a.kind !== "receipt") return null;
   const { trigger_id, subscription, subject, event, trigger_block } = a;
   if (
@@ -35,7 +37,9 @@ export function parseReceipt(
     typeof subscription !== "string" ||
     typeof subject !== "string" ||
     typeof event !== "string" ||
-    typeof trigger_block !== "bigint"
+    typeof trigger_block !== "bigint" ||
+    // Every reader looks the event up in a table: an unknown one crashed the web's (audit SH-4).
+    !(EVENTS as readonly string[]).includes(event)
   )
     return null;
   let p: Record<string, unknown> = {};
