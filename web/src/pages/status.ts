@@ -7,16 +7,11 @@ import { rawGetEntity } from "../../../shared/arkiv.ts";
 import { decodeSubscription, type Sub } from "../../../shared/subscription.ts";
 import { span } from "../entityForm.ts";
 import { EXPLORER, fetchReceipts, renderReceipts } from "../receiptsView.ts";
-import { errorLine, link } from "../router.ts";
+import { errorLine, link, p } from "../router.ts";
 import { reader } from "../wallet.ts";
 
 const MS_PER_BLOCK = 2_000;
 
-const p = (...parts: (string | Node)[]) => {
-  const el = document.createElement("p");
-  el.append(...parts);
-  return el;
-};
 const code = (text: string) => {
   const el = document.createElement("code");
   el.textContent = text;

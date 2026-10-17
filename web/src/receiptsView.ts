@@ -3,7 +3,7 @@
 import { addr } from "@arkiv-network/sdk/attr";
 import { eq, MAX_LIMIT, or, type Expression } from "@arkiv-network/sdk/query";
 import { getAddress, type Hex } from "viem";
-import { rawGetEntity } from "../../shared/arkiv.ts";
+import { rawGetEntity, type RawEntity } from "../../shared/arkiv.ts";
 import { inBatches } from "../../shared/limit.ts";
 import { parseReceipt, type Receipt } from "../../shared/receipt.ts";
 import {
@@ -11,7 +11,7 @@ import {
   type Event,
   type KeepSkipReason,
 } from "../../shared/schema.ts";
-import { link } from "./router.ts";
+import { link, p, table } from "./router.ts";
 import { reader } from "./wallet.ts";
 
 declare const __TRUSTED_WORKERS__: string; // vite.config.ts
@@ -25,34 +25,39 @@ export const TRUSTED = __TRUSTED_WORKERS__
 
 export const EXPLORER = "https://tiramisu.explorer.arkiv.network"; // /entity/<key>, /address/<a>
 
-// One paid query per page of up to 200 keys, then a free read per key, decoded by the same parser
-// the relay uses. The $creator filter keeps forged receipts out of the pages; parseReceipt checks again.
-export async function fetchReceipts(...where: Expression[]) {
-  if (!TRUSTED.length)
-    throw new Error("This site has no trusted workers configured.");
+// Every live entity matching `where`: one paid query per page of up to 200 keys, then a free read
+// per key, so callers decode exactly what the workers decode.
+export async function fetchEntities(...where: Expression[]) {
   let page = await reader
     .select({ key: true })
-    .where(
-      eq("project", PROJECT),
-      eq("kind", "receipt"),
-      or(TRUSTED.map((a) => eq("$creator", addr(a)))),
-      ...where,
-    )
+    .where(eq("project", PROJECT), ...where)
     .limit(MAX_LIMIT)
     .fetch();
-  const out: Receipt[] = [];
+  const out: RawEntity[] = [];
   for (;;) {
     const entities = await inBatches(page.entities, (e) =>
       rawGetEntity(reader, e.key),
     );
-    for (const e of entities) {
-      const r = e && parseReceipt(e, TRUSTED); // null: expired between the query and the read
-      if (r) out.push(r);
-    }
+    for (const e of entities) if (e) out.push(e); // null: expired between the query and the read
     if (!page.hasNextPage()) break;
     page = await page.next();
   }
-  return out.sort((a, b) => (a.triggerBlock < b.triggerBlock ? 1 : -1)); // newest first
+  return out;
+}
+
+// The $creator filter keeps forged receipts out of the pages; parseReceipt checks again. Newest first.
+export async function fetchReceipts(...where: Expression[]) {
+  if (!TRUSTED.length)
+    throw new Error("This site has no trusted workers configured.");
+  const entities = await fetchEntities(
+    eq("kind", "receipt"),
+    or(TRUSTED.map((a) => eq("$creator", addr(a)))),
+    ...where,
+  );
+  return entities
+    .map((e) => parseReceipt(e, TRUSTED))
+    .filter((r) => r !== null)
+    .sort((a, b) => (a.triggerBlock < b.triggerBlock ? 1 : -1));
 }
 
 const EVENT_TEXT: Record<Event, string> = {
@@ -79,7 +84,7 @@ const SKIP_TEXT: Record<KeepSkipReason, string> = {
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const addressLink = (a: Hex) => link(`${EXPLORER}/address/${a}`, short(a));
 
-function row(r: Receipt) {
+function cells(r: Receipt): (string | Node)[] {
   const what =
     r.event === "expired"
       ? `${EVENT_TEXT.expired} by block ${r.triggerBlock}`
@@ -93,7 +98,7 @@ function row(r: Receipt) {
   const target = document.createElement("span");
   if (r.targetCreator) target.append("creator ", addressLink(r.targetCreator));
   if (r.targetOwner) target.append(" · owner ", addressLink(r.targetOwner));
-  const cells: (string | Node)[] = [
+  return [
     why ? `${what}: ${why}` : what,
     String(r.triggerBlock),
     late === undefined ? "?" : `${late} blocks (~${late * 2n} s)`,
@@ -101,31 +106,23 @@ function row(r: Receipt) {
     target,
     link(`${EXPLORER}/entity/${r.key}`, "receipt"),
   ];
-  const tr = document.createElement("tr");
-  for (const c of cells) {
-    const td = document.createElement("td");
-    td.append(c); // strings become text nodes: on-chain notes can't inject markup
-    tr.append(td);
-  }
-  return tr;
 }
 
 export function renderReceipts(list: Receipt[]) {
-  const note = document.createElement("p");
+  const note = p(
+    "Written by trusted workers. Receipts can't be rewritten; deletion is publicly logged.",
+  );
   note.className = "note";
-  note.textContent =
-    "Written by trusted workers. Receipts can't be rewritten; deletion is publicly logged.";
-  if (!list.length) {
-    const none = document.createElement("p");
-    none.textContent =
-      "No receipts yet. A worker writes one when the trigger fires.";
-    return [note, none];
-  }
-  const table = document.createElement("table");
-  table.innerHTML =
-    "<thead><tr><th>Event</th><th>Trigger block</th><th>Late</th><th>Worker</th><th>Target as seen</th><th></th></tr></thead>";
-  const body = document.createElement("tbody");
-  body.append(...list.map(row));
-  table.append(body);
-  return [note, table];
+  if (!list.length)
+    return [
+      note,
+      p("No receipts yet. A worker writes one when the trigger fires."),
+    ];
+  return [
+    note,
+    table(
+      ["Event", "Trigger block", "Late", "Worker", "Target as seen", ""],
+      list.map(cells),
+    ),
+  ];
 }
