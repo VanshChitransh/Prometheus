@@ -1,19 +1,45 @@
 // Relay entrypoint (LLD §6.2): one process for the bot, receipt delivery and the HTTP API.
 // Run: npm run relay.
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage } from "node:http";
 import { dirname, join } from "node:path";
-import { freeCount, publicHttp, publicWs } from "../shared/arkiv.ts";
+import { formatEther, parseEther } from "viem";
+import {
+  freeCount,
+  publicHttp,
+  publicWs,
+  walletClient,
+} from "../shared/arkiv.ts";
 import { loadConfig } from "../shared/config.ts";
 import { PROJECT } from "../shared/schema.ts";
 import { createBot } from "./bot.ts";
 import { openDb } from "./db.ts";
 import { startDelivery } from "./deliver.ts";
+import { createSponsor } from "./sponsor.ts";
 
 const DAY_MS = 86_400_000;
+const MAX_BODY = 8_192; // bytes; a /sponsor body is ~1 KB
 
 const cfg = loadConfig("relay");
 const db = openDb(cfg.dbPath);
 const pub = publicHttp(cfg.http, cfg.accessKey);
+
+// Its own wallet, never a worker's: sponsoring can't starve the workers' gas.
+const sponsorWallet = walletClient(cfg.sponsorKey, cfg.http, cfg.accessKey);
+const sponsor = createSponsor({
+  db,
+  pub,
+  botToken: cfg.telegramToken,
+  send: (to, value) => sponsorWallet.sendTransaction({ to, value }),
+});
+pub
+  .getBalance({ address: sponsorWallet.account.address })
+  .then((b) => {
+    const log = b < parseEther("0.1") ? console.warn : console.log;
+    log(
+      `[relay] sponsor ${sponsorWallet.account.address} holds ${formatEther(b)} GLM`,
+    );
+  })
+  .catch((e) => console.warn("[relay] sponsor balance check failed:", e));
 
 // Delivered ids are only needed while a replay could still bring their receipt back.
 const prune = () => {
@@ -75,17 +101,56 @@ const workersAlive = async () => {
   return cfg.trustedWorkers.filter((_, i) => alive[i]);
 };
 
+// Refused past MAX_BODY before parsing, so nobody can stream junk into memory.
+async function readJson(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req as AsyncIterable<Buffer>) {
+    size += chunk.length;
+    if (size > MAX_BODY) throw new RangeError("body too large");
+    chunks.push(chunk);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+// CORS `*`: the web app calls cross-origin, and no cookies are involved. /health is public, and
+// /sponsor proves who's asking with initData, not with the caller's origin.
+const CORS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST",
+  "access-control-allow-headers": "content-type",
+};
+
 // `ok` means the relay is up. An Arkiv outage reports workersAlive: null rather than failing the
 // check: restarting the relay can't fix the node.
 const server = createServer(async (req, res) => {
   const json = (status: number, body: unknown) => {
-    res.writeHead(status, {
-      "content-type": "application/json",
-      "access-control-allow-origin": "*", // public, read-only; the web app reads it cross-origin
-    });
+    res.writeHead(status, { "content-type": "application/json", ...CORS });
     res.end(JSON.stringify(body));
   };
   const path = new URL(req.url ?? "/", "http://relay").pathname;
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, { ...CORS, "access-control-max-age": "86400" });
+    return res.end();
+  }
+  if (req.method === "POST" && path === "/sponsor") {
+    let body: unknown;
+    try {
+      body = await readJson(req);
+    } catch (e) {
+      return e instanceof RangeError
+        ? json(413, { error: "Request too large." })
+        : json(400, { error: "Send JSON." });
+    }
+    const r = await sponsor(body).catch((e) => {
+      console.error("[relay] /sponsor failed:", e);
+      return {
+        status: 500,
+        body: { error: "Something went wrong. Try again." },
+      };
+    });
+    return json(r.status, r.body);
+  }
   if (req.method === "GET" && path === "/health") {
     const alive = await workersAlive().catch((e) => {
       console.error("[relay] /health worker check failed:", e);
@@ -96,7 +161,7 @@ const server = createServer(async (req, res) => {
   json(404, { error: "not found" });
 });
 server.listen(cfg.port, () =>
-  console.log(`[relay] http on :${cfg.port} (GET /health)`),
+  console.log(`[relay] http on :${cfg.port} (GET /health, POST /sponsor)`),
 );
 
 // Graceful: stop taking updates and events, let the delivery chain and checkpoint finish (≤ 5 s),
