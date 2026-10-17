@@ -70,12 +70,13 @@ function setup({ balance = 0n } = {}) {
   const db = openDb(":memory:", () => NOW * 1_000);
   const log: string[] = [];
   let broken = false;
+  let lookups = 0;
   const handle = createSponsor({
     db,
     botToken: TOKEN,
     now: () => NOW * 1_000,
     pub: {
-      getBalance: async () => balance,
+      getBalance: async () => (lookups++, balance),
       waitForTransactionReceipt: (async ({ hash }: { hash: Hex }) => {
         await new Promise((r) => setTimeout(r, 5));
         log.push(`mined ${hash.slice(0, 4)}`);
@@ -87,7 +88,13 @@ function setup({ balance = 0n } = {}) {
       return `0x${to.slice(2, 3).repeat(64)}` as Hex;
     },
   });
-  return { db, log, handle, breakSend: (b: boolean) => (broken = b) };
+  return {
+    db,
+    log,
+    handle,
+    breakSend: (b: boolean) => (broken = b),
+    lookups: () => lookups,
+  };
 }
 
 const req = (address: string, id = 42) => ({
@@ -120,6 +127,16 @@ test("a second claim by the same user or for the same address is refused", async
   assert.equal((await handle(req(addr("1"), 1))).status, 200);
   assert.equal((await handle(req(addr("2"), 1))).status, 409); // same user
   assert.equal((await handle(req(addr("1"), 2))).status, 409); // same address
+});
+
+test("an already sponsored user or a spent cap costs no balance lookup", async () => {
+  const { handle, db, lookups } = setup();
+  assert.equal((await handle(req(addr("1"), 1))).status, 200);
+  assert.equal((await handle(req(addr("2"), 1))).status, 409); // same user
+  assert.equal((await handle(req(addr("1"), 2))).status, 409); // same address
+  db.claimSponsor(7, addr("7"), parseEther("0.98")); // the day's 1 GLM is now spent
+  assert.equal((await handle(req(addr("3"), 3))).status, 429);
+  assert.equal(lookups(), 1);
 });
 
 test("an already funded wallet is refused and claims nothing", async () => {

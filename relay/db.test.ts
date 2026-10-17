@@ -61,6 +61,15 @@ test("claimSponsor refuses a second claim by the same user or for the same addre
   assert.equal(db.claimSponsor(2, OTHER, 2n), true);
 });
 
+test("isSponsored matches a claim by the same user or for the same address, in any case", () => {
+  const db = openDb(":memory:");
+  assert.equal(db.isSponsored(1, ADDR), false);
+  db.claimSponsor(1, ADDR, 2n);
+  assert.equal(db.isSponsored(1, OTHER), true); // same user
+  assert.equal(db.isSponsored(2, ADDR.toLowerCase()), true); // same address, other case
+  assert.equal(db.isSponsored(2, OTHER), false);
+});
+
 test("releaseSponsor frees both the user and the address; others stay claimed", () => {
   const db = openDb(":memory:");
   db.claimSponsor(1, ADDR, 2n);

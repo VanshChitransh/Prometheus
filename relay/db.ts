@@ -47,6 +47,9 @@ export function openDb(path: string, now: () => number = Date.now) {
   const insSponsor = db.prepare(
     "INSERT OR IGNORE INTO sponsors (tg_user_id, address, amount_wei, created_at) VALUES (?, ?, ?, ?)",
   );
+  const selSponsor = db.prepare(
+    "SELECT 1 FROM sponsors WHERE tg_user_id = ? OR address = ?",
+  );
   const selSponsored = db.prepare(
     "SELECT amount_wei FROM sponsors WHERE created_at >= ?",
   );
@@ -78,6 +81,10 @@ export function openDb(path: string, now: () => number = Date.now) {
     // Returns the number of rows deleted.
     pruneDelivered(): number {
       return Number(delDelivered.run(sec() - 30 * DAY).changes);
+    },
+    // A cheap early "no" (sponsor.ts asks it before any RPC); claimSponsor stays the real guard.
+    isSponsored(tgUserId: number, address: string): boolean {
+      return selSponsor.get(tgUserId, address.toLowerCase()) !== undefined;
     },
     // Call BEFORE sending GLM: false means this user or address was already sponsored.
     claimSponsor(

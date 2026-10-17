@@ -88,6 +88,14 @@ export function createSponsor(o: {
     status,
     body: { error },
   });
+  const capped = () => o.db.sponsoredLast24h() + SPONSOR_AMOUNT > DAILY_CAP;
+  const usedUp: SponsorReply = {
+    status: 429,
+    body: {
+      error: "Today's free GLM is used up. Try the faucet.",
+      faucet: FAUCET,
+    },
+  };
 
   // Throws only if the balance lookup fails (the caller answers 500); nothing is claimed by then.
   return async function handle(body: unknown): Promise<SponsorReply> {
@@ -99,18 +107,16 @@ export function createSponsor(o: {
       return fail(401, "Open this from the Prometheus Telegram bot.");
     if (!isAddress(address)) return fail(400, "That isn't a valid address.");
 
+    // Refusals that need no RPC come first, so a sponsored user or a spent cap can't make every
+    // request cost a balance lookup on the key delivery shares (audit RL-4).
+    if (o.db.isSponsored(user, address))
+      return fail(409, "You've already been sponsored.");
+    if (capped()) return usedUp;
     if ((await o.pub.getBalance({ address })) >= FUNDED)
       return fail(409, "This wallet already has GLM.");
     // No await from here to the claim: Node can't run another request in between, so two taps at
     // once can't both pass the cap check.
-    if (o.db.sponsoredLast24h() + SPONSOR_AMOUNT > DAILY_CAP)
-      return {
-        status: 429,
-        body: {
-          error: "Today's free GLM is used up. Try the faucet.",
-          faucet: FAUCET,
-        },
-      };
+    if (capped()) return usedUp;
     // The row is written BEFORE any GLM moves: its keys block a second grant (LLD §6.1).
     if (!o.db.claimSponsor(user, address, SPONSOR_AMOUNT))
       return fail(409, "You've already been sponsored.");
