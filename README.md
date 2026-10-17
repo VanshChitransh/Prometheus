@@ -39,6 +39,22 @@ curl https://$RELAY_HOST/health     # worker A listed in workersAlive
 
 Firewall: inbound 22, 80 (certificate challenge), 443 only. Stop any local copy of worker A or the relay first: two worker A's race for nonces, and two relays make Telegram refuse the bot's polling.
 
+### Worker B
+
+Same image, its own droplet in another region (live: DigitalOcean `sfo2`; A is in `nyc1`), so a host or datacenter outage can't take both. It serves nothing, so its firewall allows inbound SSH (22) only. It needs no compose file:
+
+- `.env.worker-b` (`chmod 600`): the same variables as `.env.worker-a`, with B's own `ARKIV_ACCESS_KEY` and `WORKER_PRIVATE_KEY`, and `WORKER_DELAY_BLOCKS=15`
+
+```bash
+docker build --build-arg GIT_SHA=$(git rev-parse --short HEAD) -t prometheus .
+docker run -d --name worker-b --init --restart unless-stopped --stop-timeout 10 \
+  --log-opt max-size=10m --log-opt max-file=3 \
+  --env-file .env.worker-b -v "$PWD/state/worker-b:/app/state" \
+  prometheus node worker/index.ts
+```
+
+`--init` and the log options match `compose.yaml`. To update: rebuild, then `docker rm -f worker-b` and run it again (the state folder keeps its place). Deploy the same commit to both workers. `/health` on the relay lists both once B is up.
+
 ## License
 
 MIT
