@@ -1,0 +1,7 @@
+# The build context: the Dockerfile copies only shared/, worker/ and relay/, so nothing else needs
+# to reach the builder, least of all secrets and state.
+.env*
+state
+node_modules
+web
+.git
