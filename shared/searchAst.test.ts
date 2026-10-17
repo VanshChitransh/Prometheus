@@ -36,6 +36,15 @@ test("withKey adds the $key filter", () => {
   );
 });
 
+// LLD §5 said uppercase names are rejected, but SDK 0.8.1 names are case-sensitive and the node
+// accepts them (measured 17 Oct): `Kind` is a different, valid attribute.
+test("an uppercase attribute name is valid", () => {
+  assert.equal(
+    parseSearch({ eq: ["Kind", { str: "x" }] }).toString(),
+    "Kind = str('x')",
+  );
+});
+
 test("user text stays inside the value (no injection)", () => {
   const q = parseSearch({ eq: ["kind", { str: "x') OR (true" }] }).toString();
   assert.equal(q, "kind = str('x'') OR (true')");
