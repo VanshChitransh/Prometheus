@@ -3,6 +3,7 @@
 import {
   createPublicClient,
   createWalletClient,
+  decodeCreationFlags,
   type PublicArkivClient,
   type RpcEntity,
 } from "@arkiv-network/sdk";
@@ -28,9 +29,13 @@ const httpTransport = (url: string, accessKey?: string) =>
       : undefined,
   });
 
+// cacheTime 0: the chain sets no blockTime, so viem held getBlockNumber() for 4 s (~2 blocks) and
+// "has the HTTP node reached this block?" polls kept reading a stale head. Here only, not on the
+// chain: that would also make the wallet poll for receipts 4× as often.
 export const publicHttp = (url: string, accessKey?: string) =>
   createPublicClient({
     chain: tiramisu,
+    cacheTime: 0,
     transport: httpTransport(url, accessKey),
   });
 
@@ -142,8 +147,16 @@ export async function rawGetEntity(
 ): Promise<RawEntity | null> {
   const e = await call<RpcEntity | null>(client, "arkiv_getEntity", [key]);
   if (!e) return null;
+  // The byte first, like the SDK's own decoder: the node sends {readonly, permissionlessExtension,
+  // raw} today, but RpcEntity also allows the bare byte or {raw}, which read as "no flags" (SH-7).
+  const f = e.creationFlags;
+  const raw = typeof f === "number" ? f : f?.raw;
   const flags =
-    typeof e.creationFlags === "object" ? e.creationFlags : undefined;
+    typeof raw === "number"
+      ? decodeCreationFlags(raw)
+      : typeof f === "object"
+        ? f
+        : undefined;
   return {
     key: e.key!,
     // The node returns lowercase; checksum so === matches TRUSTED_WORKERS and the SDK's output.
