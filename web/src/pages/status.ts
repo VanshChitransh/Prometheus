@@ -29,7 +29,7 @@ function describe(s: Sub) {
     case "keep":
       return `Renews the entity ${span(s.leadBlocks!)} before it expires, adding ${span(s.keepBlocks!)} each time.`;
     case "new_match":
-      return `Tells when a new entity matches its search${s.targetOwner ? ` (owner ${s.targetOwner})` : ""}.`;
+      return `Tells when a new record matches: ${s.search}${s.targetOwner ? `, created by ${s.targetOwner}` : ""}. New records only.`;
   }
 }
 

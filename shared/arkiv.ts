@@ -129,6 +129,8 @@ export type RawEntity = {
   flags: { readonly: boolean; permissionlessExtension: boolean };
   // u64 → bigint; i32 → number; bool → boolean; everything else (str, key, addr, u256…) a string.
   attributes: Record<string, string | number | boolean | bigint>;
+  // Each attribute's Arkiv type (str, key, addr…), which the values above can't tell apart.
+  types?: Record<string, string>;
   payload?: Hex;
 };
 
@@ -160,6 +162,9 @@ export async function rawGetEntity(
           ? BigInt(a.value as string)
           : (a.value as string | number | boolean),
       ]),
+    ),
+    types: Object.fromEntries(
+      (e.attributes ?? []).map((a) => [a.name, a.type]),
     ),
     payload: e.payload,
   };
