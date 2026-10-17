@@ -9,7 +9,8 @@ Measured 15–16 Oct 2026. Environment for every entry unless noted: Tiramisu te
 - **Expected:** reading one entity by key is the cheap, common case, so `publicClient.getEntity(key)` uses the cheapest call.
 - **Actual:** `getEntity` is implemented as `arkiv_query` with `$key = …`. The node answers with `arkiv-cost: 100` and `arkiv-quota-used-percent` goes up by 1 per call. The node also serves a raw `arkiv_getEntity` method that returns the same data plus `createdAt`/`updatedAt`, with **no** `arkiv-cost` header and quota at 0%. The SDK has no wrapper for it, and it is not in `ArkivRpcSchema`.
 - **Impact:** a worker that checks every receipt with the SDK burns its quota on about 100 reads. We call `arkiv_getEntity` with raw `fetch` instead.
-- **Repro:** create any entity, then compare the response headers of `arkiv_query ["$key = 0x…", {limit:1}]` and `arkiv_getEntity ["0x…"]` (probe lines `1b` and `1c`).
+- **Repro:** create any entity, then compare the response headers of `arkiv_query ["$key = key(0x…)", {limit:"0x1"}]` and `arkiv_getEntity ["0x…"]` (probe lines `1b` and `1c`).
+- **Also:** a failed `arkiv_query` still returns `arkiv-cost: 100` (measured 17 Oct). `$key = 0x…` without its `key(…)` type is refused with -32001 and billed all the same.
 - **Filed upstream:** [reported-issues #18](https://github.com/Arkiv-Network/reported-issues/issues/18)
 
 ## 2. `eth_getLogs` is capped by block range, not by result count

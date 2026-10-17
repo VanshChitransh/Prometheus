@@ -74,8 +74,12 @@ line("1a sdk getEntity", {
 // 1b. Raw arkiv_getEntity, which the LLD assumes exists and is free.
 line("1b raw arkiv_getEntity", await rpc("arkiv_getEntity", [entityKey]));
 
-// 1c. The cost header on the call the SDK actually makes.
-const q = await rpc("arkiv_query", [`$key = ${entityKey}`, { limit: 1 }]);
+// 1c. The cost header on the call the SDK actually makes. The node wants typed literals and a hex
+// limit: a bare `$key = 0x…` is refused (-32001), yet still billed, so it measured nothing (audit).
+const q = await rpc("arkiv_query", [
+  `$key = key(${entityKey})`,
+  { limit: "0x1" },
+]);
 line("1c arkiv_query headers", { status: q.status, headers: q.headers });
 
 // 1d–1f. The shared free calls (T1.2), checked against the live node.

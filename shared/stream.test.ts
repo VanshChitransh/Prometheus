@@ -46,6 +46,7 @@ function fake(logs: ReturnType<typeof logged>[] = [], autoHead = true) {
     httpHeads: [] as bigint[],
     rawHeads: [] as bigint[],
     throwOnce: undefined as string | undefined, // the next delivery of this event throws
+    filter: {} as Record<string, unknown>, // the last getLogs call's filter, minus the range
   };
   const stop = startStream({
     ws: {
@@ -76,10 +77,17 @@ function fake(logs: ReturnType<typeof logged>[] = [], autoHead = true) {
       getLogs: async ({
         fromBlock,
         toBlock,
+        address,
+        events,
+        strict,
       }: {
         fromBlock: bigint;
         toBlock: bigint;
+        address: string;
+        events: unknown[];
+        strict: boolean;
       }) => {
+        f.filter = { address, events: events.length, strict };
         await f.replayGate;
         if (f.failLogs > 0) {
           f.failLogs--;
@@ -119,6 +127,13 @@ test("replay, then the buffer, each event once; heads wait until caught up", asy
   await flush();
   assert.deepEqual(f.delivered, ["1@103", "2@105", "3@106"]);
   assert.deepEqual(f.heads, [106n]);
+  // The replay asks for exactly what the live stream gets: the Arkiv contract's 5 entity events,
+  // with undecodable logs dropped rather than delivered half-parsed.
+  assert.deepEqual(f.filter, {
+    address: "0x4400000000000000000000000000000000000044",
+    events: 5,
+    strict: true,
+  });
 
   f.pushEvent(live(4, 107n)); // live now: straight through
   f.pushHead(107n);
