@@ -1,0 +1,6 @@
+# Only web/ (plus shared/ and the root config) builds the site; keys and worker state never upload.
+.env*
+!.env.example
+state/
+node_modules
+dist
