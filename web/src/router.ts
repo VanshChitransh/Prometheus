@@ -39,3 +39,27 @@ export function link(href: string, text: string) {
   a.textContent = text;
   return a;
 }
+
+// A paragraph of text and nodes. Strings become text nodes: on-chain text can't inject markup.
+export function p(...parts: (string | Node)[]) {
+  const el = document.createElement("p");
+  el.append(...parts);
+  return el;
+}
+
+// A table from headers and rows of text or nodes (text-safe like p()).
+export function table(headers: string[], rows: (string | Node)[][]) {
+  const t = document.createElement("table");
+  const tr = (cells: (string | Node)[], tag: "th" | "td") => {
+    const r = document.createElement("tr");
+    for (const c of cells) {
+      const cell = document.createElement(tag);
+      cell.append(c);
+      r.append(cell);
+    }
+    return r;
+  };
+  t.createTHead().append(tr(headers, "th"));
+  t.createTBody().append(...rows.map((r) => tr(r, "td")));
+  return t;
+}
