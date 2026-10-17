@@ -101,6 +101,8 @@ export function createDispatch(o: {
       // LLD §3.8: the target must exist, except for `expired` (it may already have lapsed).
       if (d.sub.trigger !== "expired") {
         subs().remove(key);
+        // Not a deletion: the hourly re-sync may serve it, and its prune drops it if still dead.
+        subs().removed.delete(key.toLowerCase() as Hex);
         return console.warn(
           `[events] subscription ${key} rejected: its target ${target} doesn't exist`,
         );

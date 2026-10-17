@@ -90,16 +90,20 @@ export class Targets {
   }
 
   // One free read. Caches a live target; false = it's gone (never existed, deleted or expired). If an
-  // event changed the key while the read was in flight, the event is newer: keep what it wrote.
+  // event changed the key while the read was in flight, the event is newer: keep what it wrote. If it
+  // wrote nothing (an extension or transfer of a key not cached yet), read again: giving up refused a
+  // valid subscription (WK-6). ponytail: 3 reads, then gone; a key that busy waits for the re-sync.
   async seed(pub: PublicArkivClient, k: Hex) {
     const key = lower(k);
     this.#seeding.set(key, (this.#seeding.get(key) ?? 0) + 1);
     try {
-      const before = this.#version.get(key);
-      const e = await rawGetEntity(pub, k);
-      if (this.#version.get(key) !== before) {
+      let e;
+      for (let tries = 1; ; tries++) {
+        const before = this.#version.get(key);
+        e = await rawGetEntity(pub, k);
+        if (this.#version.get(key) === before) break;
         const now = this.#m.get(key);
-        return !!now && !now.gone;
+        if (now || tries === 3) return !!now && !now.gone;
       }
       if (!e) return false;
       this.set(k, {

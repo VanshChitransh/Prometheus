@@ -44,7 +44,7 @@ let saving = Promise.resolve();
 let { subs, block: discoveredAt } = await discoverAll(pub);
 const targets = new Targets();
 const head = await pub.getBlockNumber();
-await seedTargets(pub, subs, targets, head);
+await seedTargets(pub, subs, targets, head, { keepChanged: true }); // the replay may delete a target
 
 // fire() is called by the expiry monitor and event dispatch (T2.5, T2.7).
 const receipts = new Receipts({
