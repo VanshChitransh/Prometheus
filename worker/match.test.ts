@@ -118,3 +118,13 @@ test("subscriptions with the same search share one count", async () => {
   assert.equal(r.queries.length, 1);
   assert.equal(r.fired.length, 5);
 });
+
+// WK-2: on a replay, a record created before the subscription isn't new to it ("new records only").
+test("a record created at or before the subscription's block doesn't match it (WK-2)", async () => {
+  const r = await run([
+    sub(1, { createdAt: 499n }),
+    sub(2, { createdAt: 500n }), // same block as the record: a live worker can't have served it
+    sub(3, { createdAt: 600n }),
+  ]);
+  assert.deepEqual(r.fired, ["sub 1:matched@500"]);
+});
