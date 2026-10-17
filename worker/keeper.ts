@@ -54,6 +54,7 @@ export class Keeper {
   // skips as already_extended) instead of sending a redundant tx built on the same stale read.
   readonly #locks = new Map<Hex, Promise<unknown>>();
   readonly #lowFunds = new Set<Hex>(); // triggers already told "low funds" this episode
+  readonly #budgetSkipped = new Set<Hex>(); // triggers already told "budget" today
   // Extends sent today (UTC): anyone can point a keep sub at any permissionless target, so without a
   // ceiling a few wallets could drain the worker's gas (audit M4).
   #budget = { day: "", spent: 0 };
@@ -85,6 +86,18 @@ export class Keeper {
     return run;
   }
 
+  // A send that throws (network) gives its budget unit back: fire() offers the trigger again next
+  // head, and each retry used to spend another unit, so one RPC flap could burn dozens. A refused
+  // tx (ok: false) keeps it: it still cost gas.
+  async #batch(p: Parameters<Writer["batch"]>[0]) {
+    try {
+      return await this.#writer.batch(p);
+    } catch (e) {
+      this.#budget.spent = Math.max(0, this.#budget.spent - 1);
+      throw e;
+    }
+  }
+
   async #keep(k: KeepArgs): Promise<KeepOutcome> {
     const skip = (note: string, seen?: Seen) =>
       ({ event: "keep_skipped", note, seen }) as const;
@@ -99,7 +112,12 @@ export class Keeper {
 
     // One free read serves rules 3 and 4: the attributes, and the expiry as it is right now.
     const e = await rawGetEntity(this.#pub, k.target);
-    if (!e) return skip("already_expired");
+    // The cache still pins which entity we watched, even after it lapsed.
+    if (!e)
+      return skip(
+        "already_expired",
+        cached && { creator: cached.creator, owner: cached.owner },
+      );
     const seen = { creator: e.creator, owner: e.owner };
     if (!e.flags.permissionlessExtension)
       return skip("not_permissionless", seen);
@@ -131,14 +149,28 @@ export class Keeper {
     }
     this.#lowFunds.delete(k.id);
 
+    // A spent budget is this worker's limit, not the trigger's outcome: like low funds, it gets its
+    // own id and the trigger stays offered. Under the keep's id, the other worker's dedupe saw
+    // "done" and never kept, so the target lapsed although that worker had budget (audit).
     const day = new Date().toISOString().slice(0, 10);
     if (this.#budget.day !== day) this.#budget = { day, spent: 0 };
-    if (this.#budget.spent >= KEEP_BUDGET_PER_DAY) return skip("budget", seen);
+    if (this.#budget.spent >= KEEP_BUDGET_PER_DAY) {
+      if (this.#budgetSkipped.has(k.id)) return { retry: true };
+      this.#budgetSkipped.add(k.id);
+      const id = triggerId({
+        subscription: k.sub.key,
+        subject: k.target,
+        event: "keep_skipped", // the keep's own id uses "keep": these never collide
+        triggerBlock: k.triggerBlock,
+      });
+      return { ...skip("budget", seen), retry: true, id };
+    }
+    this.#budgetSkipped.delete(k.id);
     this.#budget.spent++; // counted when sent: a refused tx still costs gas
 
     // atBlock, not fromBlocks: A and B compute the same block, so a race sets an equal expiry
     // (a no-op on the node) instead of extending twice.
-    const r = await this.#writer.batch({
+    const r = await this.#batch({
       extensions: [
         {
           entityKey: k.target,

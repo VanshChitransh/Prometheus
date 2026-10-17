@@ -24,7 +24,15 @@ const FLUSH_EVERY = 5n; // blocks
 const BATCH_MAX = 50;
 const BACKOFF_MIN_MS = 1_000;
 const BACKOFF_MAX_MS = 30_000;
+const RECHECK_MIN_MS = 10_000; // after a thrown send: time for a tx that did go out to be indexed
 const LIFETIME = ExpirationTime.fromDays(30);
+// Keep outcomes aren't alerts, so they never use a max_per_day slot (see fire()).
+const KEEP_EVENTS: ReadonlySet<string> = new Set([
+  "kept",
+  "keep_skipped",
+  "keep_failed",
+  "keeper_low_funds",
+]);
 
 export type Receipt = {
   id: Hex;
@@ -129,8 +137,10 @@ export class Receipts {
     try {
       while (this.#head < triggerBlock + this.#delay) await this.#tick.promise;
       if (await this.#landed(id)) {
-        this.#fired.add(id); // the other worker already acted (its receipt counts on restart)
-        if (counted) this.#countToday(sub.key, -1);
+        // The other worker already acted. The slot stays used: the cap is per subscription, not
+        // per worker. Giving it back let A and B each count only their own writes, so a cap of 20
+        // let up to 40 alerts through (audit M4). The restart rebuild counts both workers too.
+        this.#fired.add(id);
         return "done";
       }
       let receipt:
@@ -211,9 +221,12 @@ export class Receipts {
     this.#head = head;
     this.#tick.resolve(); // wakes every fire() waiting for its block
     this.#tick = Promise.withResolvers<void>();
+    // While a refused batch is bisected (one receipt per tx), flush every head: at the usual 5-block
+    // rhythm, N receipts took ~5N blocks and B's 15-block failover wrote duplicates of all of them.
     if (
       this.#pending.length >= FLUSH_AT ||
-      (this.#pending.length > 0 && head - this.#lastFlush >= FLUSH_EVERY)
+      (this.#pending.length > 0 &&
+        (this.#solo > 0 || head - this.#lastFlush >= FLUSH_EVERY))
     )
       void this.#flush();
   }
@@ -241,6 +254,10 @@ export class Receipts {
     );
     this.#pending = saved.filter((_, i) => !landed[i]);
     for (const r of saved) this.#fired.add(r.id);
+    // Unsent alerts use today's slots too, but they aren't on chain, so the restart's chain count
+    // (rebuildDayCounts → seedDayCount, which adds to this) can't see them.
+    for (const r of this.#pending)
+      if (!KEEP_EVENTS.has(r.event)) this.#countToday(r.subscription, 1);
     console.log(
       `[receipts] resumed ${this.#pending.length} unsent receipts (${saved.length - this.#pending.length} already on chain)`,
     );
@@ -294,9 +311,13 @@ export class Receipts {
         this.#backoffMs * 2 || BACKOFF_MIN_MS,
         BACKOFF_MAX_MS,
       );
-      this.#retryAt = Date.now() + this.#backoffMs;
+      // The recheck must see the tx if it did go out, so give the node time to index it: after 1 s
+      // it counted 0 and resent, writing duplicates. 10 s (5 blocks) is still well inside B's
+      // 15-block (30 s) failover window.
+      const wait = Math.max(this.#backoffMs, RECHECK_MIN_MS);
+      this.#retryAt = Date.now() + wait;
       console.error(
-        `[receipts] flush of ${batch.length} failed; retry in ${this.#backoffMs / 1000}s:`,
+        `[receipts] flush of ${batch.length} failed; retry in ${wait / 1000}s:`,
         e,
       );
     } finally {
@@ -339,9 +360,10 @@ export class Receipts {
     return (await freeCount(this.#pub, q)) > 0;
   }
 
-  // Restores today's count after a restart (T2.8), from the receipts already on chain.
+  // Restores today's count after a restart (T2.8), from the receipts already on chain. Adds to what
+  // resume() counted from the pending file, which the chain count can't see.
   seedDayCount(subKey: Hex, n: number) {
-    this.#dayCount.set(subKey, { day: utcDay(), n });
+    this.#countToday(subKey, n);
   }
 
   #overCap(sub: Sub) {
@@ -349,7 +371,7 @@ export class Receipts {
     return c?.day === utcDay() && c.n >= sub.maxPerDay;
   }
 
-  #countToday(subKey: Hex, delta: 1 | -1) {
+  #countToday(subKey: Hex, delta: number) {
     const day = utcDay();
     const c = this.#dayCount.get(subKey);
     const n = (c?.day === day ? c.n : 0) + delta;

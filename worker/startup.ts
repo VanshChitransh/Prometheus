@@ -141,7 +141,10 @@ export async function seedTargets(
 }
 
 // LLD §3.1: today's trusted receipts per subscription (schema query #3, free), so a restart doesn't
-// reset max_per_day.
+// reset max_per_day. Added to the unsent ones resume() counted from the pending file.
+// ponytail: a soft cap, so two drifts are accepted: a trigger both workers wrote (a failover race)
+// counts twice, erring toward fewer alerts; and the day is decided by trigger_block, while live
+// counting uses the day the worker acted. Exact would need distinct trigger_ids: a paid query.
 export async function rebuildDayCounts(
   pub: PublicArkivClient,
   subs: SubsIndex,
