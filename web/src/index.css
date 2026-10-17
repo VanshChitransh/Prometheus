@@ -188,6 +188,28 @@
   .prose ol,
   .prose pre,
   .prose table,
+  /* Alert headlines in docs tables (quickstart-telegram.md): a tone dot, not an emoji. */
+  .prose .alert-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--ink);
+  }
+  .prose .alert-tag::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--tone, var(--ink-3));
+  }
+  .prose .alert-tag.ok { --tone: var(--ok); }
+  .prose .alert-tag.warn { --tone: var(--warn); }
+  .prose .alert-tag.bad { --tone: var(--bad); }
   .prose blockquote {
     margin: 1em 0;
   }
