@@ -277,3 +277,28 @@ test("never extends Prometheus's own entities (subscriptions keeping each other 
   assert.equal((await keep())?.note, "deny_listed");
   assert.equal(f.batches.length, 0);
 });
+
+// A spent budget is this worker's condition, not the trigger's: under the keep's own id it made
+// the other worker think the keep was done, so the target lapsed although B had budget.
+test("a spent budget writes keep_skipped(budget) once, under its own id, and keeps offering", async () => {
+  const { keep } = setup({ fixedExp: true });
+  for (let i = 0; i < 200; i++) await keep();
+  const first = await keep();
+  assert.equal(first?.event, "keep_skipped");
+  assert.equal(first?.note, "budget");
+  assert.equal(first?.retry, true); // not done: B (with budget) can still act, and so can A tomorrow
+  assert.notEqual(first?.id, ID);
+  assert.deepEqual(await keep(), { retry: true }); // no second receipt
+});
+
+test("a send that throws (network) gives its budget unit back", async () => {
+  const { keep } = setup({ batch: "throw", fixedExp: true });
+  for (let i = 0; i < 200; i++) await assert.rejects(keep(), /network/);
+  await assert.rejects(keep(), /network/); // still attempted: no budget burnt by retries
+});
+
+test("already_expired keeps the target's creator and owner from the cache", async () => {
+  const out = await setup({ gone: true }).keep();
+  assert.equal(out?.note, "already_expired");
+  assert.deepEqual(out?.seen, { creator: OWNER, owner: OWNER });
+});

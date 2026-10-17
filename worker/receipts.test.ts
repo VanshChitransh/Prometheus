@@ -193,10 +193,10 @@ test("a batch that throws is requeued and retried after the backoff", async () =
       "the requeue",
     );
     await new Promise((res) => setTimeout(res, 20));
-    r.onHead(1_002n); // inside the 1 s backoff: no attempt
+    r.onHead(1_002n); // inside the 10 s recheck delay: no attempt
     await new Promise((res) => setTimeout(res, 20));
     assert.equal(f.batches.length, 0);
-    mock.timers.tick(1_000);
+    mock.timers.tick(10_000); // the recheck waits ≥ 10 s after a thrown send
     r.onHead(1_003n);
     await until(() => f.batches.length === 1 && r.queued === 0, "the retry");
   } finally {
@@ -227,7 +227,7 @@ test("a send that threw after it went out isn't written twice", async () => {
     r.onHead(1_001n);
     await until(() => r.queued === 10 && f.landed.size === 10, "the requeue");
     await new Promise((res) => setTimeout(res, 20));
-    mock.timers.tick(1_000);
+    mock.timers.tick(10_000); // the recheck waits ≥ 10 s after a thrown send
     r.onHead(1_010n);
     await until(() => r.queued === 0, "the recheck");
     await new Promise((res) => setTimeout(res, 20));
@@ -366,4 +366,93 @@ test("close() flushes what's queued, for a graceful shutdown", async () => {
   assert.equal(f.batches.length, 0); // below the flush threshold, no head since
   await r.close();
   assert.equal(f.batches.length, 1);
+});
+
+const quiet = async (fn: () => Promise<void>) => {
+  const [error, warn] = [console.error, console.warn];
+  console.error = console.warn = () => {}; // refusals and drops are logged; keep output clean
+  try {
+    await fn();
+  } finally {
+    [console.error, console.warn] = [error, warn];
+  }
+};
+
+// M4: each worker used to give the slot back when it found the other's receipt, so A and B each
+// counted only their own writes and a cap of 20 let up to 40 alerts through.
+test("a trigger the other worker wrote still uses a day slot: the cap holds across A and B", async () => {
+  const { f, r } = await fake();
+  const sub = { ...SUB, maxPerDay: 2 };
+  r.onHead(1_000n);
+  f.landed.add(idFor(1n));
+  f.landed.add(idFor(2n));
+  assert.equal(await r.fire(sub, TARGET, "warned", 1n), "done");
+  assert.equal(await r.fire(sub, TARGET, "warned", 2n), "done");
+  assert.equal(await r.fire(sub, TARGET, "warned", 3n), "skipped");
+  assert.equal(r.queued, 0);
+});
+
+test("receipts resumed from the pending file count toward today's cap", async () => {
+  const { f, r } = await fake();
+  const sub = { ...SUB, maxPerDay: 3 };
+  const saved = [1n, 2n].map((b) => ({
+    id: idFor(b),
+    subscription: SUB.key,
+    subject: TARGET,
+    event: "warned",
+    triggerBlock: String(b),
+    doneBlock: String(b),
+  }));
+  await writeFile(f.file, JSON.stringify(saved));
+  await r.resume(); // 2 unsent: not on chain, so the restart's chain count can't see them
+  r.seedDayCount(SUB.key, 1); // what the chain count found
+  r.onHead(1_000n);
+  assert.equal(await r.fire(sub, TARGET, "warned", 3n), "skipped"); // 2 + 1 = 3 already
+});
+
+test("a refused batch is bisected one receipt per head, not one per 5 blocks", async () => {
+  const { f, r } = await fake();
+  r.onHead(1_000n);
+  for (let b = 1n; b <= 3n; b++) await r.fire(SUB, TARGET, "warned", b);
+  f.refuseId = idFor(2n);
+  await quiet(async () => {
+    for (let h = 1_001n; h <= 1_004n; h++) {
+      r.onHead(h);
+      await new Promise((res) => setTimeout(res, 15));
+    }
+  });
+  assert.equal(f.batches.flat().length, 2); // 1 and 3 landed; 2 was the malformed one
+  assert.equal(r.queued, 0);
+});
+
+test("after a thrown send, the recheck waits 10 s so a tx that went out is indexed first", async () => {
+  mock.timers.enable({ apis: ["Date"] });
+  try {
+    const { f, r } = await fake();
+    r.onHead(1_000n);
+    for (let b = 1n; b <= 10n; b++) await r.fire(SUB, TARGET, "warned", b);
+    f.next = "throw";
+    await quiet(async () => {
+      r.onHead(1_001n);
+      await until(
+        () => r.queued === 10 && f.fileDuringSend !== "",
+        "the requeue",
+      );
+      await new Promise((res) => setTimeout(res, 20));
+    });
+    const counts = f.counts;
+    mock.timers.tick(9_999);
+    r.onHead(1_002n);
+    await new Promise((res) => setTimeout(res, 20));
+    assert.equal(f.counts, counts); // no recheck yet
+    assert.equal(f.batches.length, 0);
+    mock.timers.tick(1);
+    r.onHead(1_003n);
+    await until(
+      () => f.batches.length === 1 && r.queued === 0,
+      "the recheck and resend",
+    );
+  } finally {
+    mock.timers.reset();
+  }
 });
