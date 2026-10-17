@@ -6,7 +6,7 @@ import type { Hex } from "viem";
 import { rawGetEntity } from "../shared/arkiv.ts";
 import { PROJECT } from "../shared/schema.ts";
 import { decodeSubscription, type Sub } from "../shared/subscription.ts";
-import { inBatches } from "./limit.ts";
+import { inBatches } from "../shared/limit.ts";
 
 const CAP_PER_CREATOR = 20; // LLD §3.8: beyond it, the newest are ignored
 const OVER_CAP = `over the ${CAP_PER_CREATOR}-per-creator cap`;

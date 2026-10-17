@@ -11,7 +11,7 @@ import { decodeEventLog, encodeEventTopics, numberToHex, type Hex } from "viem";
 import { freeCount, trustedFilter } from "../shared/arkiv.ts";
 import { PROJECT } from "../shared/schema.ts";
 import type { Target, Targets } from "./expiry.ts";
-import { inBatches } from "./limit.ts";
+import { inBatches } from "../shared/limit.ts";
 import type { Receipts } from "./receipts.ts";
 import { discoverAll, type SubsIndex } from "./subs.ts";
 

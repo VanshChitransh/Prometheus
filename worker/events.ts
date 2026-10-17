@@ -8,7 +8,7 @@ import { PROJECT } from "../shared/schema.ts";
 import { decodeSubscription } from "../shared/subscription.ts";
 import { fireChanged } from "./change.ts";
 import type { Targets } from "./expiry.ts";
-import { createLimiter } from "./limit.ts";
+import { createLimiter } from "../shared/limit.ts";
 import { matchCreated, type Later } from "./match.ts";
 import type { Receipts } from "./receipts.ts";
 import { seedGone } from "./startup.ts";

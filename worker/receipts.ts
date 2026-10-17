@@ -14,7 +14,7 @@ import { PROJECT, type Event } from "../shared/schema.ts";
 import type { Sub } from "../shared/subscription.ts";
 import { triggerId } from "../shared/triggerId.ts";
 import type { Keeper } from "./keeper.ts";
-import { inBatches } from "./limit.ts";
+import { inBatches } from "../shared/limit.ts";
 import type { Writer } from "./writer.ts";
 
 const FLUSH_AT = 10; // receipts
