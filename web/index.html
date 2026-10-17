@@ -1,59 +1,30 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <title>Prometheus</title>
-    <!-- Telegram Mini App bridge; inert on the plain web. Before main.ts: it reads the launch hash. -->
+    <meta
+      name="description"
+      content="Get warned on Telegram before an Arkiv entity expires, told when it changes, or have it renewed for you. Every action leaves a receipt on Arkiv."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Archivo:wght@700..800&display=swap"
+    />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#fafafa" />
+    <!-- Telegram Mini App bridge; inert on the plain web. Before main.tsx: it reads the launch hash. -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <style>
-      body {
-        font:
-          16px/1.5 system-ui,
-          sans-serif;
-        max-width: 48rem;
-        margin: 0 auto;
-        padding: 1rem;
-      }
-      header {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem 1rem;
-        align-items: center;
-        justify-content: space-between;
-        border-bottom: 1px solid #8884;
-        padding-bottom: 0.75rem;
-      }
-      table {
-        display: block;
-        overflow-x: auto;
-        border-collapse: collapse;
-        font-size: 0.875rem;
-      }
-      td,
-      th {
-        padding: 0.25rem 0.5rem;
-        text-align: left;
-        border-bottom: 1px solid #8884;
-      }
-      code {
-        overflow-wrap: anywhere;
-      }
-      .note {
-        font-size: 0.875rem;
-        opacity: 0.75;
-      }
-      .error {
-        color: #c33;
-      }
-    </style>
   </head>
   <body>
-    <header>
-      <a href="#/"><strong>Prometheus</strong></a>
-      <div id="wallet"></div>
-    </header>
-    <main id="app"></main>
-    <script type="module" src="./src/main.ts"></script>
+    <div id="app"></div>
+    <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>

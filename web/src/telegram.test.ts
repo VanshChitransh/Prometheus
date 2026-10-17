@@ -9,7 +9,7 @@ test("outside Telegram nothing is detected", () => {
   assert.equal(tg, undefined);
 });
 
-test("launch: Telegram's own hash goes home, a startapp key opens its status page", () => {
+test("launch: Telegram's own hash goes home, a startapp key opens its status page, startapp=new the form", () => {
   assert.equal(
     launchHash("#tgWebAppData=query_id%3D1&tgWebAppVersion=9.1"),
     "#/",
@@ -18,6 +18,7 @@ test("launch: Telegram's own hash goes home, a startapp key opens its status pag
   assert.equal(launchHash("#/coverage"), "#/coverage");
   assert.equal(launchHash("#tgWebAppData=x", encodeKey(KEY)), `#/s/${KEY}`);
   assert.equal(launchHash("#tgWebAppData=x", "not-a-key"), "#/");
+  assert.equal(launchHash("#tgWebAppData=x", "new"), "#/new");
 });
 
 test("sponsor replies: a tx is success, anything else shows the relay's own words", () => {

@@ -1,0 +1,345 @@
+/* Prometheus tokens, in Arkiv's own look: near-black ink on a light grey page, Arkiv orange as the one
+   accent, Archivo for headings (heavy, uppercase) and IBM Plex for text. Every page reads these. */
+@import "tailwindcss";
+
+:root {
+  --page: #fafafa;
+  --cell: #ffffff;
+  --fill: rgb(31 31 31 / 0.05);
+  --fill-strong: rgb(31 31 31 / 0.09);
+  --ink: #1f1f1f;
+  --ink-2: #5d6370;
+  --ink-3: #9096a1;
+  --sep: #e5e7eb;
+  --accent: #fe7445;
+  --accent-ink: #1f1f1f;
+  --accent-soft: rgb(254 116 69 / 0.12);
+  --ok: #15803d;
+  --warn: #c2410c;
+  --bad: #c8102e;
+  --chrome: rgb(250 250 250 / 0.88);
+  --float: #ffffff;
+  --shadow-float:
+    0 0 0 1px rgb(31 31 31 / 0.1), 0 12px 32px rgb(31 31 31 / 0.08);
+  --band: #1f1f1f;
+  --band-cell: #2a2a2a;
+  --band-sep: #3a3a3a;
+  --hero-glow: none;
+  --font-body: "IBM Plex Sans";
+  --font-head: "Archivo";
+  --head-weight: 800;
+  --head-case: uppercase;
+  --head-track: -0.01em;
+  color-scheme: light;
+}
+
+/* `inline`: utilities reference the variables, so they follow the theme with no dark: variants. */
+@theme inline {
+  --font-sans: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-head), var(--font-body), ui-sans-serif, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-page: var(--page);
+  --color-cell: var(--cell);
+  --color-fill: var(--fill);
+  --color-fill-strong: var(--fill-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-sep: var(--sep);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-chrome: var(--chrome);
+  --color-float: var(--float);
+  --shadow-float: var(--shadow-float);
+  --color-band: var(--band);
+  --color-band-cell: var(--band-cell);
+  --color-band-sep: var(--band-sep);
+  --color-accent-ink: var(--accent-ink);
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
+  --animate-shimmer: shimmer 1.4s linear infinite;
+  --animate-blink: blink 1.6s ease-in-out infinite;
+  --animate-shake: shake 320ms ease-out; /* a bad submit shakes the field once (bencho form-error) */
+
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+  @keyframes shake {
+    25% {
+      transform: translateX(-5px);
+    }
+    50% {
+      transform: translateX(4px);
+    }
+    75% {
+      transform: translateX(-2px);
+    }
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0.25;
+    }
+  }
+}
+
+/* Unlayered on purpose: it must beat Tailwind's weight and tracking utilities, so every heading gets
+   Arkiv's heavy uppercase style. */
+.font-display {
+  font-weight: var(--head-weight);
+  text-transform: var(--head-case);
+  letter-spacing: var(--head-track);
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    background: var(--page);
+  }
+  body {
+    @apply bg-page font-sans text-[15px] leading-[1.47] text-ink antialiased;
+    font-feature-settings: "kern";
+  }
+  /* iOS zooms into inputs under 16px and never zooms back (mobile-native §4). */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+  button,
+  a,
+  [role="button"],
+  [role="radio"],
+  [role="tab"] {
+    touch-action: manipulation;
+  }
+  button,
+  [role="button"],
+  [role="radio"],
+  [role="tab"] {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  ::selection {
+    background: var(--accent-soft);
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Reduced motion keeps opacity and colour, drops movement (apple-design §14). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-property: opacity, color, background-color !important;
+  }
+}
+
+/* Long-form text: docs pages and blog posts (rendered Markdown). */
+@layer components {
+  .prose {
+    color: var(--ink);
+    font-size: 16px;
+    line-height: 1.7;
+    max-width: 72ch;
+  }
+  .prose > :first-child {
+    margin-top: 0;
+  }
+  .prose h2 {
+    font-family: var(--font-display);
+    font-size: 26px;
+    line-height: 1.2;
+    font-weight: var(--head-weight);
+    letter-spacing: var(--head-track);
+    margin: 2.2em 0 0.6em;
+    scroll-margin-top: 88px;
+  }
+  .prose h3 {
+    font-size: 18px;
+    line-height: 1.35;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 1.8em 0 0.4em;
+    scroll-margin-top: 88px;
+  }
+  .prose p,
+  .prose ul,
+  .prose ol,
+  .prose pre,
+  .prose table,
+  .prose blockquote {
+    margin: 1em 0;
+  }
+  .prose ul {
+    list-style: disc;
+    padding-left: 1.25em;
+  }
+  .prose ol {
+    list-style: decimal;
+    padding-left: 1.4em;
+  }
+  .prose li {
+    margin: 0.35em 0;
+  }
+  .prose li::marker {
+    color: var(--ink-3);
+  }
+  .prose a {
+    color: var(--accent);
+    overflow-wrap: anywhere; /* a bare URL is one long word */
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent);
+    text-underline-offset: 3px;
+  }
+  .prose a:hover {
+    text-decoration-color: var(--accent);
+  }
+  .prose strong {
+    font-weight: 600;
+  }
+  .prose :not(pre) > code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    background: var(--fill);
+    padding: 0.12em 0.38em;
+    border-radius: 5px;
+    overflow-wrap: anywhere;
+  }
+  .prose pre {
+    background: var(--band);
+    color: #e9e9e6;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.65;
+    padding: 16px 18px;
+    border-radius: 12px;
+    overflow-x: auto;
+  }
+  .prose pre code {
+    font-family: inherit;
+  }
+  .prose table {
+    display: block;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .prose th {
+    text-align: left;
+    font-weight: 500;
+    color: var(--ink-2);
+    border-bottom: 1px solid var(--sep);
+    padding: 8px 16px 8px 0;
+    white-space: nowrap;
+  }
+  /* A table scrolls sideways on its own, so code in a cell stays on one line (not "expir / ing"). */
+  .prose td code,
+  .prose th code {
+    white-space: nowrap;
+    overflow-wrap: normal;
+  }
+  .prose td {
+    border-bottom: 1px solid var(--sep);
+    padding: 10px 16px 10px 0;
+    vertical-align: top;
+  }
+  .prose blockquote {
+    border-left: 2px solid var(--accent);
+    padding-left: 18px;
+    font-size: 18px;
+    line-height: 1.5;
+    color: var(--ink-2);
+  }
+  .prose hr {
+    border: 0;
+    border-top: 1px solid var(--sep);
+    margin: 2.5em 0;
+  }
+}
+
+/* Home-page motion (Home.tsx). */
+@keyframes letter-fade {
+  0%,
+  30% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  55%,
+  80% {
+    opacity: 0.08;
+    filter: blur(3px);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+@keyframes flatline {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: -1;
+  }
+}
+/* Home "How Prometheus fixes it": step 2's ring, one per 2-second block. */
+@keyframes ring {
+  0% {
+    box-shadow: 0 0 0 0 rgb(254 116 69 / 0.45);
+  }
+  60%,
+  100% {
+    box-shadow: 0 0 0 10px rgb(254 116 69 / 0);
+  }
+}
+
+/* Problem-section example rows: each dot sends out a ring in turn; nothing answers. */
+.rows-ping li > span:first-child {
+  animation: row-ping 4.5s var(--ease-out) infinite;
+}
+.rows-ping li:nth-child(2) > span:first-child {
+  animation-delay: 1.5s;
+}
+.rows-ping li:nth-child(3) > span:first-child {
+  animation-delay: 3s;
+}
+@keyframes row-ping {
+  0% {
+    box-shadow: 0 0 0 0 rgb(200 16 46 / 0.5);
+  }
+  35%,
+  100% {
+    box-shadow: 0 0 0 12px rgb(200 16 46 / 0);
+  }
+}
+
+/* Dotted grid behind a section (agenttrust's background): one dot per 22px cell. */
+.dot-grid {
+  background-image: radial-gradient(
+    rgb(31 31 31 / 0.22) 1px,
+    transparent 1.2px
+  );
+  background-size: 22px 22px;
+}
