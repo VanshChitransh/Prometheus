@@ -33,6 +33,7 @@ export async function matchCreated(o: {
   const candidates = o.subs.filter(
     (s) =>
       s.trigger === "new_match" &&
+      s.createdAt < e.blockNumber && // new records only: a replay mustn't match its past
       s.expiresAt > e.blockNumber && // an expired subscription no longer asks
       (!s.targetOwner || s.targetOwner.toLowerCase() === owner),
   );

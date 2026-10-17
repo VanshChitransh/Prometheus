@@ -252,6 +252,41 @@ test("EntityDeleted of a watched target → deleted with the cached owner, then 
   assert.equal(targets.get(TARGET), undefined);
 });
 
+// WK-2: a catch-up replays events from before a subscription existed. A live worker never fired for
+// them, so firing now is a false alert, and A and B disagree.
+test("a replayed change from before the subscription's block fires nothing for it (WK-2)", async () => {
+  const { subs, fired, run } = changeSetup();
+  subs.add({
+    ...WATCHER,
+    key: hex(4),
+    trigger: "changed",
+    leadBlocks: undefined,
+    createdAt: 200n,
+  });
+  await run({
+    type: "EntityPatched",
+    entityKey: TARGET,
+    owner: OWNER,
+    blockNumber: 100n,
+  });
+  await run({
+    type: "EntityPatched",
+    entityKey: TARGET,
+    owner: OWNER,
+    blockNumber: 200n,
+  });
+  await run({
+    type: "EntityPatched",
+    entityKey: TARGET,
+    owner: OWNER,
+    blockNumber: 201n,
+  });
+  assert.deepEqual(
+    fired.map((f) => `${f.sub === hex(4) ? "new" : "old"}@${f.block}`),
+    ["old@100", "old@200", "old@201", "new@201"],
+  );
+});
+
 test("a change to an unwatched entity fires nothing", async () => {
   const { fired, run } = changeSetup();
   await run({ type: "EntityPatched", entityKey: OTHER, owner: OWNER });

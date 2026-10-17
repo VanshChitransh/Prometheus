@@ -16,9 +16,12 @@ export function fireChanged(o: {
   seen?: Seen;
   receipts: Pick<Receipts, "fire">;
 }): Later | undefined {
-  // A subscription that expired by this block no longer asks (it lingers until the hourly re-sync).
+  // A subscription that expired by this block no longer asks (it lingers until the hourly re-sync);
+  // one created at or after it didn't ask yet: a replay would alert on its past (a live worker
+  // can't have served it then).
   const watching = o.subs.filter(
-    (s) => s.trigger === "changed" && s.expiresAt > o.block,
+    (s) =>
+      s.trigger === "changed" && s.createdAt < o.block && s.expiresAt > o.block,
   );
   if (watching.length === 0) return;
   // A change is never offered again, so a failed fire throws and the dispatcher retries the Later.
