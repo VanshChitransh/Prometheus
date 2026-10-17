@@ -277,7 +277,7 @@ function ExportKey() {
 }
 
 // An unfunded wallet can't sign anything: free GLM inside Telegram, the faucet everywhere else.
-function Funding({
+export function Funding({
   address,
   onFunded,
 }: {
