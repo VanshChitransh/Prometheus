@@ -10,7 +10,7 @@ import { bytes32, key, u64 } from "@arkiv-network/sdk/attr";
 import { ExpirationTime, jsonToPayload } from "@arkiv-network/sdk/utils";
 import type { Hex } from "viem";
 import { freeCount, trustedFilter } from "../shared/arkiv.ts";
-import { PROJECT, type Event } from "../shared/schema.ts";
+import { LIFETIMES, PROJECT, type Event } from "../shared/schema.ts";
 import type { Sub } from "../shared/subscription.ts";
 import { triggerId } from "../shared/triggerId.ts";
 import type { Keeper } from "./keeper.ts";
@@ -25,7 +25,7 @@ const BATCH_MAX = 50;
 const BACKOFF_MIN_MS = 1_000;
 const BACKOFF_MAX_MS = 30_000;
 const RECHECK_MIN_MS = 10_000; // after a thrown send: time for a tx that did go out to be indexed
-const LIFETIME = ExpirationTime.fromDays(30);
+const LIFETIME = ExpirationTime.fromDays(LIFETIMES.receiptDays);
 // Keep outcomes aren't alerts, so they never use a max_per_day slot (see fire()).
 const KEEP_EVENTS: ReadonlySet<string> = new Set([
   "kept",

@@ -94,3 +94,15 @@ test("relay WEB_URL is optional and must be https (Telegram opens Mini Apps over
     /WEB_URL must be an https:\/\/ URL/,
   );
 });
+
+test("the worker's version is GIT_SHA, the commit it was built from, or dev without it (WK-11)", () => {
+  assert.equal(loadConfig("worker", worker).version, "dev");
+  assert.equal(
+    loadConfig("worker", { ...worker, GIT_SHA: "78bc187" }).version,
+    "78bc187",
+  );
+  assert.throws(
+    () => loadConfig("worker", { ...worker, GIT_SHA: "x".repeat(200) }),
+    /GIT_SHA must be/,
+  );
+});

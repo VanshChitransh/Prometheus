@@ -1,17 +1,17 @@
 // Keeps this worker's `worker` entity alive (LLD §2.1, §3.7). Expiry is the health check: each extend
 // resets the entity to 30 minutes from now, so while the worker runs it never lapses, and if the
 // worker dies it vanishes from Arkiv within 30 minutes. Node only.
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import type { PublicArkivClient } from "@arkiv-network/sdk";
 import { u64 } from "@arkiv-network/sdk/attr";
 import { ExpirationTime, jsonToPayload } from "@arkiv-network/sdk/utils";
 import type { Hex } from "viem";
 import { rawGetEntity } from "../shared/arkiv.ts";
 import type { WorkerConfig } from "../shared/config.ts";
-import { PROJECT, TRIGGERS } from "../shared/schema.ts";
+import { LIFETIMES, PROJECT, TRIGGERS } from "../shared/schema.ts";
 import type { Writer } from "./writer.ts";
 
-const LIFETIME = ExpirationTime.fromMinutes(30);
+const LIFETIME = ExpirationTime.fromMinutes(LIFETIMES.workerMinutes);
 const EVERY_MS = 10 * 60_000; // 3 beats per lifetime: survives two missed beats
 const FAILURES_BEFORE_ERROR = 3;
 
@@ -36,7 +36,7 @@ export async function startHeartbeat(
       attributes: {
         project: PROJECT,
         kind: "worker",
-        version: "0.1.0",
+        version: cfg.version, // the deployed commit
         operator: cfg.delayBlocks === 0 ? "team-a" : "team-b", // a label only; trust is $creator
         delay_blocks: u64(cfg.delayBlocks),
       },
@@ -45,7 +45,9 @@ export async function startHeartbeat(
     if (!r.ok) throw new Error(`worker entity create refused: ${r.reason}`);
     const key = r.value.entityKey;
     await mkdir("state", { recursive: true });
-    await writeFile(file, JSON.stringify({ key }));
+    // Atomic, like the checkpoint: a crash mid-write left a corrupt file, and loadKey refuses one.
+    await writeFile(`${file}.tmp`, JSON.stringify({ key }));
+    await rename(`${file}.tmp`, file);
     console.log(
       `[heartbeat] worker entity live at ${new Date().toISOString()}: ${key} (owner ${address})`,
     );
@@ -53,8 +55,11 @@ export async function startHeartbeat(
   };
 
   const saved = await loadKey(file);
+  const live = saved && (await rawGetEntity(pub, saved));
   let key: Hex;
-  if (saved && (await rawGetEntity(pub, saved))) {
+  // Reused only while it names the running commit: a redeploy writes a fresh entity, and the old one
+  // lapses within 30 minutes (liveness is any live entity per wallet, so the worker never looks down).
+  if (saved && live && live.attributes.version === cfg.version) {
     key = saved;
     console.log(`[heartbeat] reusing worker entity ${key}`);
   } else key = await create();
