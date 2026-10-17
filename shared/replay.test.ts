@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { InvalidParamsRpcError } from "viem";
@@ -11,7 +11,9 @@ import {
   replayEntityRanges,
   saveCheckpoint,
   SeenLogs,
+  setAside,
   smallerLogSpan,
+  startBlock,
   oneHourBack,
 } from "./replay.ts";
 
@@ -137,6 +139,29 @@ test("checkpoint round-trips, is undefined when missing, and throws when corrupt
   assert.equal(await loadCheckpoint(path), 645_100n);
   await writeFile(path, "{not json");
   await assert.rejects(loadCheckpoint(path));
+});
+
+test("startBlock: the checkpoint, or one hour back on first boot or after a testnet wipe", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  const path = join(await mkdtemp(join(tmpdir(), "prometheus-")), "cp.json");
+  const at = (head: bigint) => startBlock(path, head);
+  assert.deepEqual(await at(5_000n), { block: 3_200n, wiped: false }); // first boot
+  await saveCheckpoint(path, 4_990n);
+  assert.deepEqual(await at(5_000n), { block: 4_990n, wiped: false });
+  await saveCheckpoint(path, 5_010n); // the HTTP node a few blocks behind: not a wipe
+  assert.deepEqual(await at(5_000n), { block: 5_010n, wiped: false });
+  // Left by the chain before a wipe: replaying from it found nothing, and it never moved (SH-5).
+  await saveCheckpoint(path, 700_000n);
+  assert.deepEqual(await at(5_000n), { block: 3_200n, wiped: true });
+});
+
+test("setAside renames a pre-wipe file, and does nothing when there is none", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "prometheus-")), "p.json");
+  await writeFile(path, "[]");
+  await setAside(path);
+  assert.equal(await readFile(`${path}.wiped`, "utf8"), "[]");
+  await assert.rejects(readFile(path), { code: "ENOENT" });
+  await setAside(path); // nothing there: no throw
 });
 
 test("oneHourBack never goes below block 0 (a young or freshly wiped chain)", () => {

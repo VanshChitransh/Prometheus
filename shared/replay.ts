@@ -84,6 +84,32 @@ export class SeenLogs {
 export const oneHourBack = (head: bigint) =>
   head > 1_800n ? head - 1_800n : 0n;
 
+// A checkpoint over an hour past the head isn't a lagging node: a testnet wipe left it.
+export const pastHead = (block: bigint, head: bigint) => block > head + 1_800n;
+
+// Where catch-up starts: the checkpoint, or one hour back on first boot or after a wipe. Kept, a
+// pre-wipe checkpoint replayed nothing and never moved again (audit SH-5). `wiped`: the caller's
+// other pre-wipe state (the worker's unsent receipts) belongs to the old chain too.
+export async function startBlock(path: string, head: bigint) {
+  const saved = await loadCheckpoint(path);
+  if (saved !== undefined && !pastHead(saved, head))
+    return { block: saved, wiped: false };
+  if (saved !== undefined)
+    console.warn(
+      `[replay] checkpoint ${saved} is past head ${head}: a testnet wipe? One hour back`,
+    );
+  return { block: oneHourBack(head), wiped: saved !== undefined };
+}
+
+// Moves a pre-wipe file out of the way (`<path>.wiped`), kept for a look rather than deleted.
+export async function setAside(path: string) {
+  try {
+    await rename(path, `${path}.wiped`);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
+}
+
 // The last block fully handled. undefined = no checkpoint yet (first boot).
 export async function loadCheckpoint(
   path: string,

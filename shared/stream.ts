@@ -9,7 +9,7 @@ import {
   type PublicArkivClient,
 } from "@arkiv-network/sdk";
 import type { publicWs } from "./arkiv.ts";
-import { replayEntityRanges, SeenLogs } from "./replay.ts";
+import { pastHead, replayEntityRanges, SeenLogs } from "./replay.ts";
 
 // The system contract that emits every entity event. SDK 0.8.1 doesn't export its ARKIV_ADDRESS.
 const ARKIV_ADDRESS = "0x4400000000000000000000000000000000000044";
@@ -137,6 +137,11 @@ export function startStream({
       }
       if (head < live)
         throw new Error(`HTTP head ${head} still behind the socket's ${live}`);
+      // The caller owns the checkpoint, so only a restart (startBlock) can reset it (SH-5).
+      if (pastHead(from - 1n, head))
+        console.error(
+          `[stream] checkpoint ${from - 1n} is past head ${head}: wipe? restart`,
+        );
       await replayEntityRanges(
         from,
         head,
