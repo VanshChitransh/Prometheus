@@ -1,5 +1,6 @@
 // Entry: the wallet bar in the header, and the page router below it.
 import { coveragePage } from "./pages/coverage.ts";
+import { minePage } from "./pages/mine.ts";
 import { newPage } from "./pages/new.ts";
 import { statusPage } from "./pages/status.ts";
 import { errorLine, startRouter } from "./router.ts";
@@ -23,10 +24,12 @@ function button(text: string, onClick: (b: HTMLButtonElement) => unknown) {
   return b;
 }
 
-async function connect(get: () => Wallet | Promise<Wallet>) {
+// `rerender`: a page drawn before the wallet existed (#/mine, #/new) redraws with it.
+async function connect(get: () => Wallet | Promise<Wallet>, rerender = true) {
   try {
     await get();
     renderWallet();
+    if (rerender) dispatchEvent(new HashChangeEvent("hashchange"));
   } catch (e) {
     bar.append(errorLine(e));
   }
@@ -69,7 +72,8 @@ function renderWallet() {
 }
 
 // A generated key comes back on reload; MetaMask waits for a click (connecting is a prompt).
-if (hasLocalKey()) connect(useLocalKey);
+if (hasLocalKey())
+  connect(useLocalKey, false); // before the first render
 else renderWallet();
 
 startRouter(app, [
@@ -79,10 +83,11 @@ startRouter(app, [
       el.innerHTML = `<p>Watch Arkiv entities: get told before one expires, when it changes,
         or keep it alive. Every action leaves a receipt on Arkiv that can't be rewritten; deletion
         is publicly logged.</p>
-        <p><a href="#/new">Create a subscription</a> · <a href="#/coverage">Coverage</a></p>`;
+        <p><a href="#/new">Create a subscription</a> · <a href="#/mine">My subscriptions</a> · <a href="#/coverage">Coverage</a></p>`;
     },
   ],
   [/^\/new$/, newPage],
   [/^\/s\/(0x[0-9a-fA-F]{64})$/, statusPage],
   [/^\/coverage$/, coveragePage],
+  [/^\/mine$/, minePage],
 ]);
