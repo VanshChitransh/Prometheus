@@ -12,7 +12,12 @@ type Base = {
   accessKey?: string;
   trustedWorkers: Hex[];
 };
-export type WorkerConfig = Base & { privateKey: Hex; delayBlocks: number };
+// version: the commit the image was built from (GIT_SHA), shown on the worker entity.
+export type WorkerConfig = Base & {
+  privateKey: Hex;
+  delayBlocks: number;
+  version: string;
+};
 export type RelayConfig = Base & {
   sponsorKey: Hex;
   telegramToken: string;
@@ -73,6 +78,10 @@ export function loadConfig<R extends Role>(
         "0x + 64 hex chars",
       ) as Hex,
       delayBlocks: Number(delay),
+      // Optional: the Dockerfile sets it from --build-arg; a local run says "dev".
+      version: env.GIT_SHA?.trim()
+        ? read("GIT_SHA", (v) => /^[0-9a-f]{7,40}$/.test(v), "a git commit SHA")
+        : "dev",
     };
   } else {
     // Optional: hosts like Railway set PORT; checked only when present.
