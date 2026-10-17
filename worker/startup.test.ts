@@ -18,7 +18,7 @@ import {
   seedGone,
   seedTargets,
 } from "./startup.ts";
-import { SubsIndex } from "./subs.ts";
+import { discoverAll, SubsIndex } from "./subs.ts";
 
 const hex = (n: number, len = 64) =>
   `0x${n.toString(16).padStart(len, "0")}` as Hex;
@@ -225,4 +225,111 @@ test("seedGone caches a lapsed target as gone at its real expiry; false without 
   assert.equal(targets.get(k)?.gone, true);
   assert.equal(targets.get(k)?.expiresAt, 400n);
   assert.equal(await seedGone(pub, targets, hex(1002), 500n), false);
+});
+
+// WK-1: discovery used to cap each creator at 20 before dropping subscriptions whose target is dead,
+// so 20 dead ones held every slot and a live one was never served (a real keep target lapsed).
+// A fake node: one page of subscription keys (in `order`), `LIVE` targets readable, the rest gone.
+const ME = "0x07dF075E19C8682E0bbF4D1B018BA3AB8Fd174f2" as Hex; // checksummed, like rawGetEntity
+const LIVE = hex(9_000);
+function discovery(subs: { n: number; target: Hex }[]) {
+  const raw = new Map(
+    subs.map(({ n, target }) => [
+      hex(n),
+      {
+        key: hex(n),
+        creator: ME,
+        owner: ME,
+        createdAt: toHex(n),
+        expiresAt: toHex(900_000),
+        attributes: [
+          { name: "project", type: "str", value: "prometheus" },
+          { name: "kind", type: "str", value: "subscription" },
+          { name: "trigger", type: "str", value: "expiring" },
+          { name: "target_key", type: "key", value: target },
+          { name: "lead_blocks", type: "u64", value: "30" },
+        ],
+        payload: toHex(JSON.stringify({ v: 1, label: `s${n}` })),
+      },
+    ]),
+  );
+  const page = {
+    entities: subs.map(({ n }) => ({ key: hex(n) })),
+    blockNumber: 500n,
+    hasNextPage: () => false,
+  };
+  return {
+    select: () => ({
+      where: () => ({ limit: () => ({ fetch: async () => page }) }),
+    }),
+    request: async ({ method, params }: { method: string; params: any[] }) => {
+      if (method === "eth_getLogs") return []; // dead targets: no expiry record
+      if (params[0] === LIVE)
+        return {
+          key: LIVE,
+          creator: ME,
+          owner: ME,
+          createdAt: toHex(1),
+          expiresAt: toHex(5_000),
+          attributes: [],
+        };
+      return raw.get(params[0]) ?? null;
+    },
+  } as never;
+}
+const dead = (n: number) => ({ n, target: hex(1_000 + n) });
+const live = (n: number) => ({ n, target: LIVE });
+
+test("dead-target subscriptions don't hold a creator's 20 slots, at startup or on re-sync (WK-1)", async () => {
+  const first = [
+    ...Array.from({ length: 20 }, (_, i) => dead(i + 1)),
+    live(21),
+  ];
+  const { subs } = await discoverAll(discovery(first));
+  await seedTargets(discovery(first), subs, new Targets(), 1_000n);
+  assert.ok(subs.get(hex(21)), "the newest, live subscription is served");
+
+  subs.add(
+    sub(22, {
+      creator: ME,
+      targetKey: LIVE,
+      trigger: "expiring",
+      leadBlocks: 30n,
+    }),
+  ); // live add
+  const { subs: fresh, block } = await discoverAll(
+    discovery([...first, live(22)]),
+  );
+  const r = mergeResync(subs, fresh, block); // 22 was created before the re-sync's block
+  await seedTargets(
+    discovery([...first, live(22)]),
+    r.subs,
+    new Targets(),
+    1_000n,
+  );
+  assert.deepEqual(
+    r.subs
+      .all()
+      .map((s) => s.key)
+      .sort(),
+    [hex(21), hex(22)],
+  );
+});
+
+test("the cap keeps the same 20 oldest live subscriptions whatever order discovery returns (WK-1)", async () => {
+  const many = Array.from({ length: 25 }, (_, i) => live(i + 1));
+  const served = async (order: typeof many) => {
+    const { subs } = await discoverAll(discovery(order));
+    await seedTargets(discovery(order), subs, new Targets(), 1_000n);
+    return subs
+      .all()
+      .map((s) => s.key)
+      .sort();
+  };
+  const a = await served(many);
+  assert.deepEqual(
+    a,
+    many.slice(0, 20).map(({ n }) => hex(n)),
+  );
+  assert.deepEqual(await served([...many].reverse()), a);
 });

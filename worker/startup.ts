@@ -119,7 +119,8 @@ export async function seedGone(
 
 // LLD §3.2 step 3, also run by the hourly re-sync: one free read per distinct target. Live → cached
 // (a re-read fixes drifted expiries). Gone → cached as gone at its real expiry block, so the monitor
-// fires `expired`; a target already known to be gone isn't looked up again.
+// fires `expired`; a target already known to be gone isn't looked up again. Then the per-creator
+// cap, so a creator's dead subscriptions don't hold the slots of live ones (WK-1).
 export async function seedTargets(
   pub: PublicArkivClient,
   subs: SubsIndex,
@@ -152,8 +153,9 @@ export async function seedTargets(
       rejected++;
     }
   }
+  const overCap = subs.enforceCap();
   console.log(
-    `[startup] ${watched.size} targets: ${watched.size - gone - unknown} live, ${gone} expired while away, ${unknown} gone with no expiry in the last day; ${rejected} subscriptions dropped (target not live)`,
+    `[startup] ${watched.size} targets: ${watched.size - gone - unknown} live, ${gone} expired while away, ${unknown} gone with no expiry in the last day; ${rejected} subscriptions dropped (target not live), ${overCap} over the per-creator cap`,
   );
 }
 
@@ -221,6 +223,7 @@ export function startResync(o: {
       );
       await seedTargets(o.pub, r.subs, o.targets, await o.pub.getBlockNumber());
     } catch (e) {
+      o.subs().enforceCap(); // a failed seed must not leave the swapped-in index uncapped
       console.error("[resync] failed; keeping the current state:", e);
     } finally {
       running = false;
