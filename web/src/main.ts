@@ -1,4 +1,5 @@
 // Entry: the wallet bar in the header, and the page router below it.
+import { coveragePage } from "./pages/coverage.ts";
 import { newPage } from "./pages/new.ts";
 import { statusPage } from "./pages/status.ts";
 import { errorLine, startRouter } from "./router.ts";
@@ -78,9 +79,10 @@ startRouter(app, [
       el.innerHTML = `<p>Watch Arkiv entities: get told before one expires, when it changes,
         or keep it alive. Every action leaves a receipt on Arkiv that can't be rewritten; deletion
         is publicly logged.</p>
-        <p><a href="#/new">Create a subscription</a></p>`;
+        <p><a href="#/new">Create a subscription</a> · <a href="#/coverage">Coverage</a></p>`;
     },
   ],
   [/^\/new$/, newPage],
   [/^\/s\/(0x[0-9a-fA-F]{64})$/, statusPage],
+  [/^\/coverage$/, coveragePage],
 ]);
