@@ -3,7 +3,7 @@
 // Not here: the 20-per-creator cap (needs every subscription, worker/subs.ts) and "the target
 // exists" (needs the network, worker).
 import type { Expression } from "@arkiv-network/sdk/query";
-import { checksumAddress, hexToString, type Hex } from "viem";
+import { checksumAddress, hexToString, isAddress, type Hex } from "viem";
 import type { RawEntity } from "./arkiv.ts";
 import {
   BOUNDS,
@@ -81,7 +81,8 @@ function decode(e: RawEntity): Sub {
   let targetOwner: Hex | undefined;
   if (trigger === "new_match" && a.target_owner !== undefined) {
     const o = a.target_owner;
-    if (typeof o !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(o))
+    // isAddress also checks a mixed-case address's checksum, as the SDK's addr() does on write.
+    if (typeof o !== "string" || !isAddress(o))
       fail("target_owner must be an address");
     targetOwner = checksumAddress(o as Hex); // events report checksummed owners
   }
@@ -116,6 +117,13 @@ function decode(e: RawEntity): Sub {
   }
   if (p?.v !== 1) fail("payload version must be v: 1");
   if (typeof p.label !== "string" || !p.label.trim()) fail("label is required");
+  const label = p.label as string;
+  // Control characters and U+2028/9 would let a label forge extra lines in the bot's DMs.
+  if (
+    label.length > BOUNDS.labelMax ||
+    /[\u0000-\u001f\u007f\u2028\u2029]/.test(label)
+  )
+    fail(`label must be one line of at most ${BOUNDS.labelMax} characters`);
 
   return {
     key: e.key,
@@ -124,7 +132,7 @@ function decode(e: RawEntity): Sub {
     expiresAt: e.expiresAt,
     publicMonitor: e.flags.permissionlessExtension,
     trigger,
-    label: p.label as string,
+    label,
     maxPerDay: Number(perDay),
     targetKey,
     targetOwner,
@@ -144,9 +152,11 @@ export function keepBlocked(
   // ponytail: a name heuristic (nothing on chain marks a canary); the owner's real protection is
   // creating it without permissionlessExtension (LLD §3.6, known limit).
   // Our own entities too: two public subscriptions keeping each other alive would never end.
+  // Each field on its own: joined, a word split across them ("undead" + "manor") matched.
+  const { kind, project } = e.attributes;
   if (
-    e.attributes.project === PROJECT ||
-    DENY_LIST.test(`${e.attributes.kind ?? ""} ${e.attributes.project ?? ""}`)
+    project === PROJECT ||
+    [kind, project].some((v) => DENY_LIST.test(String(v ?? "")))
   )
     return "deny_listed";
   return null;
