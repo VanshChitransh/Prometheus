@@ -11,7 +11,7 @@
     "test": "node --test",
     "worker": "node --env-file-if-exists=.env --env-file-if-exists=.env.worker-a worker/index.ts",
     "worker:b": "node --env-file-if-exists=.env --env-file-if-exists=.env.worker-b worker/index.ts",
-    "relay": "node --env-file=.env relay/index.ts",
+    "relay": "node --env-file-if-exists=.env --env-file-if-exists=.env.relay relay/index.ts",
     "seed": "node --env-file=.env scripts/seed.ts",
     "probe": "node --env-file=.env --env-file=.env.worker-a scripts/probe.ts"
   },
