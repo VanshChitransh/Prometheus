@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prometheus</title>
+    <style>
+      body {
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+        max-width: 48rem;
+        margin: 0 auto;
+        padding: 1rem;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 1rem;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid #8884;
+        padding-bottom: 0.75rem;
+      }
+      code {
+        overflow-wrap: anywhere;
+      }
+      .note {
+        font-size: 0.875rem;
+        opacity: 0.75;
+      }
+      .error {
+        color: #c33;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <a href="#/"><strong>Prometheus</strong></a>
+      <div id="wallet"></div>
+    </header>
+    <main id="app"></main>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
