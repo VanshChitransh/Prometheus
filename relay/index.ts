@@ -80,6 +80,7 @@ const stopDelivery = await startDelivery({
   trusted: cfg.trustedWorkers,
   // Next to the DB, so both live on the host's volume and survive a redeploy together.
   checkpointFile: join(dirname(cfg.dbPath), "relay-checkpoint.json"),
+  webUrl: cfg.webUrl,
   send: (chatId, text) =>
     bot.api.sendMessage(chatId, text, {
       link_preview_options: { is_disabled: true },

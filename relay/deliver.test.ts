@@ -250,6 +250,16 @@ test("expired says 'not renewed by block X' and links receipt, target and tx", (
   assert.match(text, /\/tx\/0xe{64}/);
 });
 
+test("with WEB_URL, an alert opens on the subscription's Status page first", () => {
+  const text = formatReceipt(base, "x", "https://app.example/");
+  assert.match(
+    text,
+    new RegExp(`\n\nStatus: https://app\\.example/#/s/${SUB}\n`),
+  );
+  assert.equal(formatReceipt(base, "x", undefined), formatReceipt(base, "x"));
+  assert.doesNotMatch(formatReceipt(base, "x"), /Status:/);
+});
+
 test("keep_skipped includes the reason", () => {
   const text = formatReceipt(
     { ...base, event: "keep_skipped", note: "already_extended" },
