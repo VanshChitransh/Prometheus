@@ -53,9 +53,13 @@ export function createBot(token: string, db: Db, client: PublicArkivClient) {
     const keys = db.listFollows(ctx.chat.id);
     if (!keys.length) return ctx.reply("You're not following anything yet.");
     // ponytail: one lookup per follow, all at once; batch them if a chat ever follows hundreds.
-    const labels = await Promise.all(keys.map((k) => labelOf(k as Hex)));
+    // A failed lookup marks only its own line, so one bad read can't fail the whole list.
+    const labels = await Promise.all(
+      keys.map((k) => labelOf(k as Hex).catch(() => undefined)),
+    );
     const lines = keys.map(
-      (k, i) => `${i + 1}. ${labels[i] ?? "(expired)"} · ${short(k)}`,
+      (k, i) =>
+        `${i + 1}. ${labels[i] === undefined ? "(unavailable)" : (labels[i] ?? "(expired)")} · ${short(k)}`,
     );
     await ctx.reply(`${lines.join("\n")}\n\nStop one with /stop <number>.`);
   });

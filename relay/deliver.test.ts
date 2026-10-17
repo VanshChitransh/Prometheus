@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { EntityEvent, PublicArkivClient } from "@arkiv-network/sdk";
 import { toHex, type Hex } from "viem";
 import type { RawEntity } from "../shared/arkiv.ts";
@@ -9,6 +12,7 @@ import {
   createSendQueue,
   formatReceipt,
   parseReceipt,
+  startDelivery,
   type Receipt,
 } from "./deliver.ts";
 
@@ -117,7 +121,8 @@ const receiptRpc = (key: Hex, creator: Hex, kind = "receipt") =>
     { v: 1 },
   );
 
-function setup() {
+// head: the HTTP node's head (omitted = no lag check); hidden: keys the HTTP node can't see yet.
+function setup({ head, hidden = [] }: { head?: bigint; hidden?: Hex[] } = {}) {
   const entities = new Map<string, unknown>([
     [k(1), receiptRpc(k(1), A)],
     [k(2), receiptRpc(k(2), B)], // worker B's copy of the same trigger
@@ -141,6 +146,7 @@ function setup() {
   const client = {
     request: async ({ params }: { params: [string] }) => {
       lookups.push(params[0]);
+      if (hidden.includes(params[0] as Hex)) return null;
       return entities.get(params[0]) ?? null;
     },
   } as unknown as PublicArkivClient;
@@ -153,6 +159,7 @@ function setup() {
     db,
     trusted: TRUSTED,
     enqueue: (chat, text) => sent.push([chat, text]),
+    headNow: head === undefined ? undefined : async () => head,
   });
   return { handle, sent, lookups };
 }
@@ -319,4 +326,138 @@ test("no message ever asks for a wallet or a signature", () => {
       formatReceipt({ ...base, event }, "label"),
       /wallet|sign|connect/i,
     );
+});
+
+// --- M5: the HTTP node can trail the socket that delivered the event ---
+
+test("a receipt the HTTP node hasn't reached yet throws, so the event is retried", async () => {
+  const behind = setup({ head: 9n, hidden: [k(1)] }); // event is at block 10
+  await assert.rejects(behind.handle(created(k(1), A)), /behind/);
+  assert.deepEqual(behind.sent, []);
+
+  const caughtUp = setup({ head: 10n }); // the retry, once the node has the block
+  await caughtUp.handle(created(k(1), A));
+  assert.equal(caughtUp.sent.length, 2);
+});
+
+test("a receipt that's null on a caught-up node is really gone: skipped quietly", async () => {
+  const { handle, sent } = setup({ head: 10n, hidden: [k(1)] });
+  await handle(created(k(1), A));
+  assert.deepEqual(sent, []);
+});
+
+// --- M3: a network blip or a Telegram 5xx must not drop the DM ---
+
+const quiet = async (fn: () => Promise<void>) => {
+  const log = console.error;
+  console.error = () => {}; // drops are logged; keep test output clean
+  try {
+    await fn();
+  } finally {
+    console.error = log;
+  }
+};
+
+test("transient send errors back off 1, 2, 4, 8, 16 s and then deliver", async () => {
+  const clock = fakeClock();
+  const tries: number[] = [];
+  const q = createSendQueue({
+    ...clock,
+    send: async () => {
+      tries.push(clock.now());
+      if (tries.length <= 5) throw new Error("fetch failed"); // grammY HttpError: no error_code
+    },
+  });
+  q.push(1, "hi");
+  await q.idle();
+  assert.deepEqual(tries, [0, 1_000, 3_000, 7_000, 15_000, 31_000]);
+  assert.equal(q.size, 0);
+});
+
+test("another chat isn't held up while one chat backs off", async () => {
+  const clock = fakeClock();
+  const sent: string[] = [];
+  let fails = 3;
+  const q = createSendQueue({
+    ...clock,
+    send: async (chat) => {
+      if (chat === 1 && fails-- > 0) throw new Error("fetch failed");
+      sent.push(`${chat}@${clock.now()}`);
+    },
+  });
+  q.push(1, "a");
+  q.push(2, "b");
+  await q.idle();
+  assert.equal(sent[0], "2@40"); // right after chat 1's first failure
+  assert.equal(sent.at(-1), "1@7000");
+});
+
+test("a DM is dropped only after 10 failed tries; a 400 after one", async () => {
+  const clock = fakeClock();
+  let tries = 0;
+  const q = createSendQueue({
+    ...clock,
+    send: async (chat) => {
+      tries++;
+      throw chat === 9 ? { error_code: 400 } : new Error("fetch failed");
+    },
+  });
+  await quiet(async () => {
+    q.push(9, "bad chat");
+    await q.idle();
+    assert.equal(tries, 1);
+    q.push(1, "never lands");
+    await q.idle();
+  });
+  assert.equal(tries, 11);
+  assert.equal(q.size, 0);
+});
+
+// --- M2: stopping must never move the checkpoint past an event that wasn't handled ---
+
+test("stop() mid-retry leaves the checkpoint before the unhandled event", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "deliver-"));
+  const file = join(dir, "checkpoint.json");
+  writeFileSync(file, JSON.stringify({ block: "100" }));
+  let onEvent!: (e: EntityEvent) => void;
+  let onHead!: (n: bigint) => void;
+  const ws = {
+    watchEntityEvents: (o: { onEvent: typeof onEvent }) => (
+      (onEvent = o.onEvent),
+      () => {}
+    ),
+    watchBlockNumber: (o: { onBlockNumber: typeof onHead }) => (
+      (onHead = o.onBlockNumber),
+      () => {}
+    ),
+  };
+  const http = {
+    getBlockNumber: async () => 101n,
+    getLogs: async () => [],
+    request: async () => {
+      throw new Error("node down"); // every receipt lookup fails, so the event keeps retrying
+    },
+  } as unknown as PublicArkivClient;
+  try {
+    await quiet(async () => {
+      const stop = await startDelivery({
+        ws: ws as never,
+        http,
+        db: openDb(":memory:"),
+        trusted: TRUSTED,
+        checkpointFile: file,
+        send: async () => {},
+      });
+      onHead(101n); // first head: the catch-up runs and goes live
+      await new Promise((r) => setTimeout(r, 50));
+      onEvent({ ...created(k(1), A), blockNumber: 102n } as EntityEvent);
+      onHead(104n); // would save 103, past the unhandled event at 102
+      await new Promise((r) => setTimeout(r, 50));
+      await stop();
+    });
+    const saved = BigInt(JSON.parse(readFileSync(file, "utf8")).block);
+    assert.ok(saved < 102n, `checkpoint ${saved} passed the unhandled event`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

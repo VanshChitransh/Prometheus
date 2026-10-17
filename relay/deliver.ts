@@ -17,7 +17,8 @@ import type { Db } from "./db.ts";
 const EXPLORER = "https://tiramisu.explorer.arkiv.network"; // routes: /entity/<key>, /tx/<hash>
 const RETRY_MIN_MS = 1_000;
 const RETRY_MAX_MS = 30_000;
-const SEND_TRIES = 3;
+const SEND_TRIES = 10; // with the backoff below: ~8.5 min of transient failures before a drop
+const SEND_BACKOFF_MAX_MS = 5 * 60_000;
 
 export type Receipt = {
   key: Hex;
@@ -105,6 +106,10 @@ export function createHandler(o: {
   db: Db;
   trusted: readonly Hex[];
   enqueue: Enqueue;
+  // The HTTP node's head. Events come over the socket, reads go over HTTP, and that node can trail
+  // the socket: a fresh receipt would read as null and be skipped for good (audit M5, as the
+  // worker's M7). Without it the lag check is skipped.
+  headNow?: () => Promise<bigint>;
 }) {
   const owners = new Set(o.trusted.map((a) => a.toLowerCase()));
   return async (e: EntityEvent) => {
@@ -112,6 +117,10 @@ export function createHandler(o: {
     if (e.type !== "EntityCreated" || !owners.has(e.owner.toLowerCase()))
       return;
     const entity = await rawGetEntity(o.client, e.entityKey);
+    // Null from a node that hasn't reached the event's block yet says nothing: throw, so the event
+    // is retried (and the checkpoint waits). Null from a caught-up node means it's really gone.
+    if (!entity && o.headNow && (await o.headNow()) < e.blockNumber)
+      throw new Error(`HTTP node behind block ${e.blockNumber}`);
     const r = entity && parseReceipt(entity, o.trusted);
     if (!r) return; // a heartbeat, or already gone
     if (r.event === "keeper_low_funds") {
@@ -141,8 +150,11 @@ type TelegramError = {
 };
 
 // Telegram's limits (LLD §6.4.5): ≤25 messages/s overall, ≤1/s per chat. A 429 pauses every send
-// for retry_after seconds and keeps the message. 400/403 (bad chat, bot blocked) drop it; anything
-// else is retried SEND_TRIES times. Per-chat order is kept; a busy chat never holds up the others.
+// for retry_after seconds and keeps the message. 400/403 (bad chat, bot blocked) can never succeed,
+// so they drop it. Anything else (a network blip, a Telegram 5xx) is transient: that chat backs off
+// 1 s, 2 s, 4 s… and the DM is dropped only after SEND_TRIES (~8.5 min). The trigger is already
+// marked delivered, so a drop is final (audit M3: 3 quick tries lost every DM in a 3 s outage).
+// Per-chat order is kept; a chat backing off never holds up the others.
 // `now` and `sleep` are injectable so tests run on a fake clock.
 export function createSendQueue({
   send,
@@ -198,7 +210,12 @@ export function createSendQueue({
           ) {
             jobs.splice(pick, 1);
             console.error(`[deliver] dropped a DM to ${job.chatId}:`, e);
-          }
+          } else
+            chatFreeAt.set(
+              job.chatId,
+              now() +
+                Math.min(1_000 * 2 ** (job.tries - 1), SEND_BACKOFF_MAX_MS),
+            );
         }
       }
       // Idle: forget chats whose gap has passed, so the map doesn't grow forever.
@@ -249,6 +266,7 @@ export async function startDelivery(o: {
     db: o.db,
     trusted: o.trusted,
     enqueue: queue.push,
+    headNow: () => o.http.getBlockNumber(),
   });
   let stopped = false;
   let chain = Promise.resolve();
@@ -277,6 +295,10 @@ export async function startDelivery(o: {
     onEvent: (e) => then(() => withRetry(e)),
     onHead: (head) =>
       then(async () => {
+        // After stop(), the events still on the chain return unhandled (withRetry gives up), so a
+        // save queued behind them would skip them for good (audit M2). Leave the checkpoint where
+        // it is: the next start replays them.
+        if (stopped) return;
         // head − 1 is complete once its events are handled (a block's logs can land just after
         // its head), and every earlier event is already done: they're ahead of us on the chain.
         const block = head - 1n;
