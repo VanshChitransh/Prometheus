@@ -29,11 +29,11 @@ The `state` folders must survive redeploys: losing the relay's means every Teleg
 On the host, next to `compose.yaml`, create (`chmod 600`; never commit or bake them into the image):
 
 - `.env.worker-a`: `ARKIV_HTTP`, `ARKIV_WS`, `TRUSTED_WORKERS`, `ARKIV_ACCESS_KEY`, `WORKER_PRIVATE_KEY`, `WORKER_DELAY_BLOCKS=0`
-- `.env.relay`: `ARKIV_HTTP`, `ARKIV_WS`, `TRUSTED_WORKERS`, `ARKIV_ACCESS_KEY`, `SPONSOR_PRIVATE_KEY`, `TELEGRAM_BOT_TOKEN`
+- `.env.relay`: `ARKIV_HTTP`, `ARKIV_WS`, `TRUSTED_WORKERS`, `ARKIV_ACCESS_KEY`, `SPONSOR_PRIVATE_KEY`, `TELEGRAM_BOT_TOKEN`, and optionally `WEB_URL` (the web app's https URL: the bot's menu button and the Status link in each alert)
 - `.env`: `RELAY_HOST=<ip-with-dashes>.sslip.io` (or your own domain pointed at the host)
 
 ```bash
-docker compose up -d --build        # first deploy and every update
+GIT_SHA=$(git rev-parse --short HEAD) docker compose up -d --build   # first deploy and every update
 curl https://$RELAY_HOST/health     # worker A listed in workersAlive
 ```
 

@@ -1,21 +1,38 @@
 # Worker A + relay + HTTPS on one host (T5.2). See README "Deploy".
 # Needs, next to this file: .env.worker-a, .env.relay (full env for each), and .env with RELAY_HOST.
+
+# Docker's default json-file log never rotates; on a small droplet it would fill the disk.
+x-logging: &logs
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+# The commit the image is built from, shown as each worker entity's `version`; README "Deploy" sets
+# it. Unset, it's empty and the version reads "dev".
+x-build: &build
+  context: .
+  args: { GIT_SHA: "${GIT_SHA:-}" }
+
 services:
   worker-a:
-    build: .
+    build: *build
     command: ["node", "worker/index.ts"]
     env_file: .env.worker-a
     volumes: ["./state/worker-a:/app/state"] # checkpoint, unsent receipts, heartbeat key
     restart: unless-stopped
     stop_grace_period: 10s # the worker's own shutdown takes ≤ 5 s
+    # tini as PID 1 passes SIGTERM on: as PID 1 itself, Node ignores it until its handler is set.
+    init: true
+    logging: *logs
 
   relay:
-    build: .
+    build: *build
     command: ["node", "relay/index.ts"]
     env_file: .env.relay
     volumes: ["./state/relay:/app/state"] # follows (SQLite) + checkpoint survive redeploys
     restart: unless-stopped
     stop_grace_period: 10s
+    init: true
+    logging: *logs
 
   # Gets a Let's Encrypt certificate for RELAY_HOST: the Vercel web app (https) can't call plain http.
   caddy:
@@ -24,6 +41,7 @@ services:
     ports: ["80:80", "443:443"]
     volumes: ["caddy-data:/data"] # keeps the certificate across restarts
     restart: unless-stopped
+    logging: *logs
 
 volumes:
   caddy-data:
