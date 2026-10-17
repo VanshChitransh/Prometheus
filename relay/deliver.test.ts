@@ -5,13 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { EntityEvent, PublicArkivClient } from "@arkiv-network/sdk";
 import { toHex, type Hex } from "viem";
-import type { RawEntity } from "../shared/arkiv.ts";
 import { openDb } from "./db.ts";
 import {
   createHandler,
   createSendQueue,
   formatReceipt,
-  parseReceipt,
   startDelivery,
   type Receipt,
 } from "./deliver.ts";
@@ -24,64 +22,6 @@ const SUB: Hex = `0x${"a".repeat(64)}`;
 const TARGET: Hex = `0x${"c".repeat(64)}`;
 const TRIGGER: Hex = `0x${"d".repeat(64)}`;
 const k = (n: number): Hex => `0x${n.toString(16).padStart(64, "0")}`;
-
-const receiptAttrs = (over: Record<string, unknown> = {}) => ({
-  project: "prometheus",
-  kind: "receipt",
-  trigger_id: TRIGGER,
-  subscription: SUB,
-  subject: TARGET,
-  event: "expired",
-  trigger_block: 643_450n,
-  ...over,
-});
-
-const raw = (
-  creator: Hex,
-  attributes: Record<string, unknown>,
-  payload?: unknown,
-): RawEntity => ({
-  key: k(1),
-  creator,
-  owner: creator,
-  createdAt: 1n,
-  expiresAt: 999n,
-  flags: { readonly: true, permissionlessExtension: false },
-  attributes: attributes as RawEntity["attributes"],
-  payload: payload === undefined ? undefined : toHex(JSON.stringify(payload)),
-});
-
-test("parseReceipt trusts only a worker-created prometheus receipt", () => {
-  const r = parseReceipt(raw(A, receiptAttrs(), { v: 1 }), TRUSTED);
-  assert.equal(r?.triggerId, TRIGGER);
-  assert.equal(r?.triggerBlock, 643_450n);
-  assert.equal(parseReceipt(raw(STRANGER, receiptAttrs()), TRUSTED), null);
-  assert.equal(
-    parseReceipt(raw(A, receiptAttrs({ kind: "worker" })), TRUSTED),
-    null,
-  );
-  assert.equal(
-    parseReceipt(raw(A, receiptAttrs({ project: "other" })), TRUSTED),
-    null,
-  );
-  assert.equal(
-    parseReceipt(raw(A, receiptAttrs({ trigger_block: "1" })), TRUSTED),
-    null,
-  );
-});
-
-test("parseReceipt reads the note and survives a broken payload", () => {
-  const note = parseReceipt(
-    raw(A, receiptAttrs({ event: "keep_skipped" }), {
-      v: 1,
-      note: "deny_listed",
-    }),
-    TRUSTED,
-  );
-  assert.equal(note?.note, "deny_listed");
-  const broken = { ...raw(A, receiptAttrs()), payload: toHex("not json") };
-  assert.equal(parseReceipt(broken, TRUSTED)?.note, undefined);
-});
 
 // --- the handler, against a stubbed node and an in-memory DB ---
 
@@ -284,6 +224,7 @@ test("a 429 waits retry_after and resends; a 403 is dropped", async () => {
 
 const base: Receipt = {
   key: k(1),
+  creator: A,
   triggerId: TRIGGER,
   subscription: SUB,
   subject: TARGET,

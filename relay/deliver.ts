@@ -6,14 +6,18 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { EntityEvent, PublicArkivClient } from "@arkiv-network/sdk";
-import { hexToString, type Hex } from "viem";
-import { rawGetEntity, type RawEntity } from "../shared/arkiv.ts";
+import type { Hex } from "viem";
+import { rawGetEntity } from "../shared/arkiv.ts";
+import {
+  parseReceipt,
+  type Receipt as ParsedReceipt,
+} from "../shared/receipt.ts";
 import {
   loadCheckpoint,
   oneHourBack,
   saveCheckpoint,
 } from "../shared/replay.ts";
-import { PROJECT, type Event } from "../shared/schema.ts";
+import type { Event } from "../shared/schema.ts";
 import { startStream, type StreamOptions } from "../shared/stream.ts";
 import { decodeSubscription } from "../shared/subscription.ts";
 import type { Db } from "./db.ts";
@@ -24,49 +28,8 @@ const RETRY_MAX_MS = 30_000;
 const SEND_TRIES = 10; // with the backoff below: ~8.5 min of transient failures before a drop
 const SEND_BACKOFF_MAX_MS = 5 * 60_000;
 
-export type Receipt = {
-  key: Hex;
-  triggerId: string;
-  subscription: Hex;
-  subject: Hex; // the watched target, or the matched entity for new_match
-  event: Event;
-  triggerBlock: bigint;
-  note?: string; // why a keep was skipped or failed
-  tx?: Hex; // the transaction that created the receipt
-};
-
-// Trust comes from $creator, never from an attribute: anyone can write kind = "receipt".
-// The kind check matters too: workers also create their own `worker` heartbeat entity.
-export function parseReceipt(
-  e: RawEntity,
-  trusted: readonly Hex[],
-): Receipt | null {
-  const a = e.attributes;
-  if (!trusted.includes(e.creator)) return null; // both sides checksummed (config.ts, arkiv.ts)
-  if (a.project !== PROJECT || a.kind !== "receipt") return null;
-  const { trigger_id, subscription, subject, event, trigger_block } = a;
-  if (
-    typeof trigger_id !== "string" ||
-    typeof subscription !== "string" ||
-    typeof subject !== "string" ||
-    typeof event !== "string" ||
-    typeof trigger_block !== "bigint"
-  )
-    return null;
-  let note: unknown;
-  try {
-    note = JSON.parse(hexToString(e.payload ?? "0x"))?.note;
-  } catch {} // no readable payload: the alert still goes out, without a note
-  return {
-    key: e.key,
-    triggerId: trigger_id,
-    subscription: subscription as Hex,
-    subject: subject as Hex,
-    event: event as Event,
-    triggerBlock: trigger_block,
-    note: typeof note === "string" ? note : undefined,
-  };
-}
+// The relay adds the creating transaction, which only the stream event knows.
+export type Receipt = ParsedReceipt & { tx?: Hex };
 
 const HEADLINE: Record<Event, string> = {
   warned: "🟠 EXPIRING SOON",
