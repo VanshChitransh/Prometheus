@@ -31,6 +31,11 @@ export function createDispatch(o: {
   // to a block (arkiv_getEntityCount ignores atBlock, measured 17 Oct). index.ts wires it; without it
   // the wait is skipped. Known limit: a replayed event is counted against the current state.
   headNow?: () => Promise<bigint>;
+  // The block startup discovery read every live subscription at (discoverAll). A creation at or
+  // before it is already indexed or gone, so it needs no subscription count: a 12 h catch-up
+  // replays ~33k chain-wide creations, and counting each one left the worker deaf for ~20 minutes
+  // (audit M1, measured 17 Oct). Unset = count every creation.
+  discoveredAt?: bigint;
 }) {
   const retryBaseMs = o.retryBaseMs ?? 1_000;
   let httpHead = 0n;
@@ -141,13 +146,21 @@ export function createDispatch(o: {
               permissionlessExtension: e.creationFlags.permissionlessExtension,
             },
           });
+        const known =
+          subs().get(k) !== undefined ||
+          (o.discoveredAt !== undefined && e.blockNumber <= o.discoveredAt);
         return {
           rpc: async () => {
             await caughtUp(e.blockNumber);
             // Free count first: ~1 event/s chain-wide, and almost none are our subscriptions. The
             // node insists on typed hex literals, so key(…), not a bare 0x… (measured 17 Oct).
-            const q = `project = str('${PROJECT}') AND kind = str('subscription') AND $key = key(${k})`;
-            if ((await freeCount(pub, q)) === 1) return addSubscription(k);
+            if (!known) {
+              const q = `project = str('${PROJECT}') AND kind = str('subscription') AND $key = key(${k})`;
+              if ((await freeCount(pub, q)) === 1) return addSubscription(k);
+            }
+            // new_match still sees every replayed creation: those made while we were down count.
+            // ponytail: a new_match sub without target_owner costs one count per creation; the
+            // owner prefilter keeps the rest cheap. Cap such subs if replays slow down again.
             return matchCreated({
               e,
               subs: subs().all(),

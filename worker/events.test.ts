@@ -60,7 +60,9 @@ const rpcTarget = {
   attributes: [],
 };
 
-function setup(o: { watched?: boolean; slow?: Promise<void> } = {}) {
+function setup(
+  o: { watched?: boolean; slow?: Promise<void>; discoveredAt?: bigint } = {},
+) {
   const subs = new SubsIndex();
   if (o.watched !== false) subs.add(WATCHER);
   const targets = new Targets();
@@ -108,6 +110,7 @@ function setup(o: { watched?: boolean; slow?: Promise<void> } = {}) {
       },
     },
     trustedWorkers: [],
+    discoveredAt: o.discoveredAt,
   });
   const run = async (e: Partial<EntityEvent>) => {
     d.onEvent({
@@ -116,7 +119,7 @@ function setup(o: { watched?: boolean; slow?: Promise<void> } = {}) {
       logIndex: 0,
       ...e,
     } as EntityEvent);
-    await d.settle(10n);
+    await d.settle(e.blockNumber ?? 10n);
   };
   return { subs, targets, f, d, run, fired };
 }
@@ -659,4 +662,50 @@ test("counts wait until the HTTP node has the event's block (M7)", async () => {
   } as EntityEvent);
   await d.settle(10n);
   assert.equal(headAtCount, 10n); // counted only once the HTTP node had block 10
+});
+
+// --- M1: a catch-up replay must not pay one free count per chain-wide creation ---
+// Startup discovery already indexed every live subscription as of its block, so a creation at or
+// before that block is either indexed already or gone: counting it again can't add anything.
+
+test("a creation at or before the discovery block costs no subscription count", async () => {
+  const { run, f, subs } = setup({ discoveredAt: 10n });
+  await run({ ...created(OTHER), blockNumber: 9n });
+  await run({ ...created(NEW_SUB), blockNumber: 10n });
+  assert.equal(f.counts, 0);
+  assert.equal(subs.get(NEW_SUB), undefined); // discovery owns these
+});
+
+test("a creation after the discovery block is still counted and added", async () => {
+  const { run, f, subs } = setup({ discoveredAt: 10n });
+  await run({ ...created(NEW_SUB), blockNumber: 11n });
+  assert.equal(f.counts, 1);
+  assert.equal(subs.get(NEW_SUB)?.label, "new");
+});
+
+test("an already indexed subscription costs no count, whatever its block", async () => {
+  const { run, f, subs } = setup({ discoveredAt: 10n });
+  subs.add({ ...WATCHER, key: NEW_SUB, label: "known" });
+  await run({ ...created(NEW_SUB), blockNumber: 50n });
+  assert.equal(f.counts, 0);
+  assert.equal(subs.get(NEW_SUB)?.label, "known");
+});
+
+test("new_match still sees creations replayed from before the discovery block", async () => {
+  const { run, f, subs, fired } = setup({ discoveredAt: 10n, watched: false });
+  subs.add({
+    ...WATCHER,
+    key: hex(5),
+    trigger: "new_match",
+    targetKey: undefined,
+    leadBlocks: undefined,
+    targetOwner: OWNER,
+    search: parseSearch({ eq: ["kind", { str: "x" }] }),
+  });
+  await run({ ...created(NEW_SUB), blockNumber: 9n }); // the fake count says 1 for NEW_SUB
+  assert.equal(f.counts, 1); // the match count only, no subscription count
+  assert.deepEqual(
+    fired.map((x) => [x.event, x.subject]),
+    [["matched", NEW_SUB]],
+  );
 });

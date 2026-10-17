@@ -35,7 +35,9 @@ let saving = Promise.resolve();
 
 // LLD §3.2 steps 2–3: discover subscriptions, then seed each distinct target, including ones that
 // expired while we were down. `let`: the hourly re-sync swaps in a fresh index.
-let { subs } = await discoverAll(pub);
+// `block`: discovery saw every live subscription as of it, so the catch-up skips counting older
+// creations (M1).
+let { subs, block: discoveredAt } = await discoverAll(pub);
 const targets = new Targets();
 const head = await pub.getBlockNumber();
 await seedTargets(pub, subs, targets, head);
@@ -61,6 +63,7 @@ const dispatch = createDispatch({
   receipts,
   trustedWorkers: cfg.trustedWorkers,
   headNow: () => pub.getBlockNumber(),
+  discoveredAt,
 });
 
 const stopStream = startStream({
