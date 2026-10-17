@@ -5,7 +5,13 @@
 // Replies are plain text: labels are user-written, and Markdown/HTML parsing would let them break it.
 
 import type { PublicArkivClient } from "@arkiv-network/sdk";
-import { Bot } from "grammy";
+import {
+  Bot,
+  HttpError,
+  type BotConfig,
+  type Context,
+  type Transformer,
+} from "grammy";
 import type { Hex } from "viem";
 import { rawGetEntity } from "../shared/arkiv.ts";
 import { decodeKey } from "../shared/deeplink.ts";
@@ -14,9 +20,36 @@ import type { Db } from "./db.ts";
 
 const short = (key: string) => `${key.slice(0, 10)}…`;
 
+// Every Bot API call passes through this: bot.api (DMs, polling, the menu) and ctx.reply, because
+// grammY copies bot.api's transformers into each update's ctx.api.
+// - No link previews unless asked: labels are user-written, so a link in one mustn't unfurl as ours.
+// - A network error carries node-fetch's FetchError, whose message is the request URL, /bot<token>/…
+//   Rebuilt without it, so no log line can leak the token (audit RL-1). Still an HttpError, so
+//   grammY keeps retrying polling.
+const apiGuard =
+  (token: string): Transformer =>
+  async (prev, method, payload, signal) => {
+    if (method === "sendMessage")
+      payload = { link_preview_options: { is_disabled: true }, ...payload };
+    try {
+      return await prev(method, payload, signal);
+    } catch (e) {
+      if (!(e instanceof HttpError)) throw e;
+      const hide = (s: string) => s.replaceAll(token, "<token>");
+      throw new HttpError(hide(e.message), hide(String(e.error)));
+    }
+  };
+
 // Not started here: the entrypoint (T3.4) owns long polling and shutdown.
-export function createBot(token: string, db: Db, client: PublicArkivClient) {
-  const bot = new Bot(token);
+// `config` is for tests: they point the API at a local fake Telegram.
+export function createBot(
+  token: string,
+  db: Db,
+  client: PublicArkivClient,
+  config?: BotConfig<Context>,
+) {
+  const bot = new Bot(token, config);
+  bot.api.config.use(apiGuard(token));
   const dm = bot.chatType("private");
 
   // The label of a live prometheus subscription; null if it expired, never existed, or isn't one.
