@@ -10,6 +10,14 @@ import { BLOCKS_PER_DAY, PROJECT, type Trigger } from "../../shared/schema.ts";
 
 export const BLOCKS_PER_MINUTE = 30; // a block every 2 s
 
+// Blocks → "~5 min" / "~3 h" / "~2 d".
+export function span(blocks: bigint) {
+  const min = Number(blocks) / BLOCKS_PER_MINUTE;
+  if (min < 90) return `~${Math.max(1, Math.round(min))} min`;
+  if (min < 48 * 60) return `~${Math.round(min / 60)} h`;
+  return `~${Math.round(min / 1440)} d`;
+}
+
 export type FormValues = {
   trigger: Trigger;
   targetKey: string;

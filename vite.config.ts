@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
       __ARKIV_HTTP__: JSON.stringify(
         env.ARKIV_HTTP || "https://rpc.tiramisu.db-chain.testnet.arkiv.network",
       ),
+      __TRUSTED_WORKERS__: JSON.stringify(env.TRUSTED_WORKERS ?? ""),
       __BOT_NAME__: JSON.stringify(env.VITE_BOT_NAME ?? ""),
     },
   };
