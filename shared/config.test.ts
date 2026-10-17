@@ -23,6 +23,12 @@ test("valid worker env returns parsed, typed values", () => {
   assert.equal(c.trustedWorkers.length, 2); // workers trust the same wallets as the relay
 });
 
+test("relay dbPath defaults to state/ and can be overridden", () => {
+  assert.equal(loadConfig("relay", relay).dbPath, "state/relay.db");
+  const c = loadConfig("relay", { ...relay, RELAY_DB_PATH: "/data/relay.db" });
+  assert.equal(c.dbPath, "/data/relay.db");
+});
+
 test("valid relay env needs no worker variables", () => {
   const c = loadConfig("relay", relay);
   assert.deepEqual(c.trustedWorkers, [
