@@ -50,6 +50,10 @@ export function openDb(path: string, now: () => number = Date.now) {
   const selSponsored = db.prepare(
     "SELECT amount_wei FROM sponsors WHERE created_at >= ?",
   );
+  const delSponsor = db.prepare("DELETE FROM sponsors WHERE tg_user_id = ?");
+  const updSponsorTx = db.prepare(
+    "UPDATE sponsors SET tx = ? WHERE tg_user_id = ?",
+  );
 
   return {
     follow(chatId: number, subKey: string) {
@@ -88,6 +92,14 @@ export function openDb(path: string, now: () => number = Date.now) {
         sec(),
       );
       return Number(r.changes) === 1;
+    },
+    // Undo a claim whose GLM provably never left (the send failed before broadcast), so the user
+    // can retry. Never call it once a tx may have gone out.
+    releaseSponsor(tgUserId: number) {
+      delSponsor.run(tgUserId);
+    },
+    recordSponsorTx(tgUserId: number, tx: string) {
+      updSponsorTx.run(tx, tgUserId);
     },
     // Summed as BigInt: SQL SUM() would turn the TEXT wei into a lossy float.
     sponsoredLast24h(): bigint {

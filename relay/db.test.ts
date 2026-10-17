@@ -61,6 +61,24 @@ test("claimSponsor refuses a second claim by the same user or for the same addre
   assert.equal(db.claimSponsor(2, OTHER, 2n), true);
 });
 
+test("releaseSponsor frees both the user and the address; others stay claimed", () => {
+  const db = openDb(":memory:");
+  db.claimSponsor(1, ADDR, 2n);
+  db.claimSponsor(2, OTHER, 2n);
+  db.releaseSponsor(1);
+  assert.equal(db.sponsoredLast24h(), 2n);
+  assert.equal(db.claimSponsor(3, ADDR, 2n), true); // the address is free again
+  assert.equal(db.claimSponsor(2, `0x${"d".repeat(40)}`, 2n), false);
+});
+
+test("recordSponsorTx keeps the claim and its amount", () => {
+  const db = openDb(":memory:");
+  db.claimSponsor(1, ADDR, 5n);
+  db.recordSponsorTx(1, `0x${"e".repeat(64)}`);
+  assert.equal(db.sponsoredLast24h(), 5n);
+  assert.equal(db.claimSponsor(1, OTHER, 5n), false);
+});
+
 test("pruneDelivered drops rows older than 30 days and keeps newer ones", () => {
   let t = 0;
   const db = openDb(":memory:", () => t);
