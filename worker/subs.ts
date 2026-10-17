@@ -5,7 +5,12 @@ import { eq, MAX_LIMIT } from "@arkiv-network/sdk/query";
 import type { Hex } from "viem";
 import { rawGetEntity } from "../shared/arkiv.ts";
 import { BOUNDS, PROJECT } from "../shared/schema.ts";
-import { decodeSubscription, older, type Sub } from "../shared/subscription.ts";
+import {
+  decodeSubscription,
+  older,
+  servedFirst,
+  type Sub,
+} from "../shared/subscription.ts";
 import { inBatches } from "../shared/limit.ts";
 
 const CAP_PER_CREATOR = BOUNDS.subsPerCreator; // LLD §3.8: beyond it, the newest are ignored
@@ -24,6 +29,13 @@ export class SubsIndex {
   // Keys removed from outside (a live EntityDeleted), so the hourly re-sync doesn't resurrect one
   // that discovery read just before it was deleted. Replacements and evictions don't count.
   readonly removed = new Set<Hex>();
+  // Off while discovery fills the index: the cap must count only subscriptions that can still fire,
+  // so it waits for the dead-target prune (enforceCap). Live adds always see it.
+  #capped: boolean;
+
+  constructor({ capped = true } = {}) {
+    this.#capped = capped;
+  }
 
   get size() {
     return this.#subs.size;
@@ -36,7 +48,7 @@ export class SubsIndex {
     this.#delete(sub.key); // the same subscription seen twice (discovery + live) replaces itself
     const mine = this.#byCreator.get(sub.creator);
     let evicted: Sub | undefined;
-    if (mine && mine.size >= CAP_PER_CREATOR) {
+    if (this.#capped && mine && mine.size >= CAP_PER_CREATOR) {
       const newest = [...mine]
         .map((k) => this.#subs.get(k)!)
         .reduce((a, b) => (older(a, b) ? b : a));
@@ -50,6 +62,21 @@ export class SubsIndex {
     if (sub.targetKey) link(this.#byTarget, lower(sub.targetKey), id);
     link(this.#byCreator, sub.creator, id);
     return { ok: true, evicted };
+  }
+
+  // Turns the cap on and applies it: each creator keeps its 20 oldest, in the order every worker and
+  // the web use (servedFirst). Evictions aren't removals: a later re-sync may serve them again.
+  enforceCap() {
+    this.#capped = true;
+    let evicted = 0;
+    for (const keys of this.#byCreator.values()) {
+      if (keys.size <= CAP_PER_CREATOR) continue;
+      const mine = this.#pick(keys);
+      const served = servedFirst(mine);
+      for (const s of mine)
+        if (!served.has(s.key) && this.#delete(s.key)) evicted++;
+    }
+    return evicted;
   }
 
   remove(key: Hex): Sub | undefined {
@@ -105,11 +132,12 @@ function unlink(map: Map<Hex, Set<Hex>>, k: Hex, id: Hex) {
 // A fresh index of every live, valid subscription, plus the block the query saw (every page of a
 // cursor walk is pinned to it), so the hourly re-sync can tell "gone since" from "added since". The paid
 // query lists keys only; each entity is then a free raw read, decoded exactly as the web form does.
+// Uncapped: seedTargets drops the dead-target ones first, then caps.
 // A failed read throws: starting with a partial set would silently drop subscriptions.
 export async function discoverAll(
   client: PublicArkivClient,
 ): Promise<{ subs: SubsIndex; block: bigint }> {
-  const index = new SubsIndex();
+  const index = new SubsIndex({ capped: false });
   const reasons = new Map<string, number>();
   const reject = (reason: string) =>
     reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
@@ -129,11 +157,7 @@ export async function discoverAll(
       if (!e) continue; // expired between the query and the read
       const d = decodeSubscription(e);
       if (!d.ok) reject(d.reason);
-      else {
-        const r = index.add(d.sub);
-        if (!r.ok) reject(r.reason);
-        else if (r.evicted) reject(OVER_CAP);
-      }
+      else index.add(d.sub);
     }
     if (!page.hasNextPage()) break;
     page = await page.next();
