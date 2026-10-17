@@ -53,6 +53,8 @@ export const BOUNDS = {
   maxPerDay: { default: 20, max: 100 },
   subsPerCreator: 20,
   search: { depth: 3, predicates: 8 },
+  // The bot prints labels verbatim, so one line and short (the web form's maxLength).
+  labelMax: 80,
 } as const;
 
 // Plain numbers; callers wrap them in ExpirationTime.fromMinutes / fromDays.

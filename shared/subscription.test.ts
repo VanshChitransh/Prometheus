@@ -2,7 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { toHex } from "viem";
 import type { RawEntity } from "./arkiv.ts";
-import { decodeSubscription, servedFirst, type Sub } from "./subscription.ts";
+import {
+  decodeSubscription,
+  keepBlocked,
+  servedFirst,
+  type Sub,
+} from "./subscription.ts";
 
 const TARGET = `0x${"b".repeat(64)}`;
 const search = { eq: ["kind", { str: "blood_request" }] };
@@ -168,6 +173,38 @@ const rejected: [string, RawEntity, RegExp][] = [
     ),
     /target_owner/,
   ],
+  [
+    "target_owner with a mistyped checksum",
+    entity(
+      {
+        trigger: "new_match",
+        target_owner: "0x6a693fd642c1F8F5E78321C2722208A3791eE79B",
+      },
+      { v: 1, label: "x", search },
+    ),
+    /target_owner/,
+  ],
+  // The bot prints labels verbatim: no room for a 4096-char DM or a forged extra line.
+  [
+    "label of 81",
+    entity(expiring, { v: 1, label: "x".repeat(81) }),
+    /label must/,
+  ],
+  [
+    "label with \\n",
+    entity(expiring, { v: 1, label: "a\nTx: x" }),
+    /label must/,
+  ],
+  [
+    "label with U+2028",
+    entity(expiring, { v: 1, label: "a\u2028b" }),
+    /label must/,
+  ],
+  [
+    "label with U+2029",
+    entity(expiring, { v: 1, label: "a\u2029b" }),
+    /label must/,
+  ],
   ["payload not JSON", entity(expiring, "not json"), /payload must be JSON/],
   ["payload v: 2", entity(expiring, { v: 2, label: "x" }), /v: 1/],
   ["empty label", entity(expiring, { v: 1, label: "  " }), /label is required/],
@@ -187,6 +224,30 @@ for (const [name, e, reason] of rejected)
     assert.equal(r.ok, false);
     assert.match((r as { reason: string }).reason, reason);
   });
+
+test("every bound is inclusive", () => {
+  for (const e of [
+    entity({ ...expiring, lead_blocks: 30n }),
+    entity({ ...expiring, lead_blocks: 43_200n, max_per_day: 100n }),
+    entity({ ...keep, keep_blocks: 1_800n }),
+    entity({ ...keep, keep_blocks: 1_296_000n }),
+    entity(expiring, { v: 1, label: "x".repeat(80) }),
+  ]) {
+    const r = decodeSubscription(e);
+    assert.ok(r.ok, r.ok ? "" : r.reason);
+  }
+});
+
+test("keepBlocked tests kind and project each on their own", () => {
+  const target = (kind: string, project: string) =>
+    entity({ kind, project, trigger: undefined });
+  // A deny-listed word split across the two fields isn't a match (audit SH-2).
+  assert.equal(keepBlocked(target("undead", "manor")), null);
+  assert.equal(keepBlocked(target("bookkeep", "alive-market")), null);
+  assert.equal(keepBlocked(target("heart_beat", "x")), "deny_listed");
+  assert.equal(keepBlocked(target("x", "my-Canary")), "deny_listed");
+  assert.equal(keepBlocked(target("record", "prometheus")), "deny_listed");
+});
 
 test("servedFirst keeps a creator's 20 oldest, ties broken by key", () => {
   const sub = (createdAt: number, k: number) =>
