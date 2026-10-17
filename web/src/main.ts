@@ -1,4 +1,5 @@
 // Entry: the wallet bar in the header, and the page router below it.
+import { newPage } from "./pages/new.ts";
 import { errorLine, startRouter } from "./router.ts";
 import {
   balance,
@@ -75,7 +76,9 @@ startRouter(app, [
     (el) => {
       el.innerHTML = `<p>Watch Arkiv entities: get told before one expires, when it changes,
         or keep it alive. Every action leaves a receipt on Arkiv that can't be rewritten; deletion
-        is publicly logged.</p>`;
+        is publicly logged.</p>
+        <p><a href="#/new">Create a subscription</a></p>`;
     },
   ],
+  [/^\/new$/, newPage],
 ]);
