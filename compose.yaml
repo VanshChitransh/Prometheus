@@ -1,0 +1,29 @@
+# Worker A + relay + HTTPS on one host (T5.2). See README "Deploy".
+# Needs, next to this file: .env.worker-a, .env.relay (full env for each), and .env with RELAY_HOST.
+services:
+  worker-a:
+    build: .
+    command: ["node", "worker/index.ts"]
+    env_file: .env.worker-a
+    volumes: ["./state/worker-a:/app/state"] # checkpoint, unsent receipts, heartbeat key
+    restart: unless-stopped
+    stop_grace_period: 10s # the worker's own shutdown takes ≤ 5 s
+
+  relay:
+    build: .
+    command: ["node", "relay/index.ts"]
+    env_file: .env.relay
+    volumes: ["./state/relay:/app/state"] # follows (SQLite) + checkpoint survive redeploys
+    restart: unless-stopped
+    stop_grace_period: 10s
+
+  # Gets a Let's Encrypt certificate for RELAY_HOST: the Vercel web app (https) can't call plain http.
+  caddy:
+    image: caddy:2.10
+    command: caddy reverse-proxy --from ${RELAY_HOST:?set RELAY_HOST in .env} --to relay:8080
+    ports: ["80:80", "443:443"]
+    volumes: ["caddy-data:/data"] # keeps the certificate across restarts
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
