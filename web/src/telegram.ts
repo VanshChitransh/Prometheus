@@ -3,7 +3,6 @@
 // Telegram's on-device storage, and opens t.me links without leaving the app.
 import type { Hex } from "viem";
 import { decodeKey } from "../../shared/deeplink.ts";
-import { link } from "./router.ts";
 
 // Only the parts we use (core.telegram.org/bots/webapps). Storage callbacks are (error, value…).
 type TgStorage = {
@@ -24,6 +23,10 @@ type WebApp = {
   expand(): void;
   isVersionAtLeast(version: string): boolean;
   openTelegramLink(url: string): void;
+  colorScheme: "light" | "dark";
+  onEvent(event: "themeChanged", cb: () => void): void;
+  setHeaderColor?(color: string): void; // Bot API 6.1
+  setBackgroundColor?(color: string): void; // Bot API 6.1
   SecureStorage?: TgStorage; // Bot API 9.0, iOS Keychain / Android Keystore
   DeviceStorage?: TgStorage; // Bot API 9.0, local key-value storage
 };
@@ -39,20 +42,31 @@ const app = (globalThis as { window?: Window }).window?.Telegram?.WebApp;
 export const tg = app?.initData ? app : undefined;
 
 // The hash to open at launch. Telegram appends #tgWebAppData=… to our URL, which the router can't
-// read; and t.me/<bot>?startapp=<encoded key> means "open that subscription's status page".
+// read; t.me/<bot>?startapp=<encoded key> means "open that subscription's status page", and
+// ?startapp=new opens the form (the web's "In Telegram" card).
 export function launchHash(hash: string, startParam?: string) {
+  if (startParam === "new") return "#/new";
   const key = startParam ? decodeKey(startParam) : null;
   if (key) return `#/s/${key}`;
   return hash === "" || hash.startsWith("#tgWebApp") ? "#/" : hash;
 }
 
 // Before the router starts. telegram-web-app.js (loaded first, in <head>) has already read the hash.
+// The page has one look (index.css); inside Telegram we only paint Telegram's own
+// header and overscroll in the page colour, so the Mini App reads as one surface.
 export function boot() {
   if (!tg) return;
   tg.ready();
   tg.expand();
   const h = launchHash(location.hash, tg.initDataUnsafe.start_param);
   if (h !== location.hash) history.replaceState(null, "", h);
+  const page = getComputedStyle(document.documentElement)
+    .getPropertyValue("--page")
+    .trim();
+  if (page && tg.isVersionAtLeast("6.1")) {
+    tg.setHeaderColor?.(page);
+    tg.setBackgroundColor?.(page);
+  }
 }
 
 // --- where the generated key lives ---
@@ -117,16 +131,14 @@ export const keyStore = () => (chosen ??= pick());
 
 // --- links and the /sponsor reply ---
 
-// A t.me link that stays inside Telegram (and keeps the Mini App open); a plain link elsewhere.
-export function telegramLink(href: string, text: string) {
-  const a = link(href, text);
-  if (tg)
-    a.onclick = (e) => {
-      e.preventDefault();
-      tg.openTelegramLink(href);
-    };
-  return a;
-}
+// onClick for a t.me link: inside Telegram it stays in the app (and keeps the Mini App open);
+// elsewhere the link opens normally.
+export const telegramClick =
+  (href: string) => (e: { preventDefault(): void }) => {
+    if (!tg) return;
+    e.preventDefault();
+    tg.openTelegramLink(href);
+  };
 
 export const FAUCET = "https://hub.arkiv.network/faucet";
 

@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "target": "esnext",
+    "jsx": "react-jsx",
     "module": "nodenext",
     "strict": true,
     "noEmit": true,

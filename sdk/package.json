@@ -1,0 +1,41 @@
+{
+  "name": "prometheus-arkiv",
+  "version": "0.1.0",
+  "description": "Watch Arkiv entities from code: warn before they expire, tell you when they expire, change or a new match appears, or keep them alive. Alerts in Telegram.",
+  "keywords": [
+    "arkiv",
+    "expiry",
+    "alerts",
+    "telegram",
+    "watch"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VanshChitransh/Prometheus.git",
+    "directory": "sdk"
+  },
+  "homepage": "https://github.com/VanshChitransh/Prometheus/tree/main/sdk#readme",
+  "bugs": "https://github.com/VanshChitransh/Prometheus/issues",
+  "exports": {
+    ".": {
+      "types": "./dist/sdk/src/index.d.ts",
+      "import": "./dist/sdk/src/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p .",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@arkiv-network/sdk": "^0.8.1",
+    "viem": "^2.57.0"
+  }
+}
