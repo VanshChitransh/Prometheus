@@ -46,7 +46,12 @@ const HEADLINE: Record<Event, string> = {
 
 // Plain text: labels are user-written, so Markdown/HTML parsing would let them break the message.
 // Canary wording is "not renewed by block X", never "compromised" (arkiv/schema.md).
-export function formatReceipt(r: Receipt, label: string): string {
+// With webUrl (WEB_URL), the first link is the subscription's Status page, where alerts land.
+export function formatReceipt(
+  r: Receipt,
+  label: string,
+  webUrl?: string,
+): string {
   const reason = r.note?.replaceAll("_", " ");
   const detail =
     r.event === "expired"
@@ -58,6 +63,9 @@ export function formatReceipt(r: Receipt, label: string): string {
     `${HEADLINE[r.event] ?? r.event.toUpperCase()} · ${label}`,
     detail,
     "",
+    ...(webUrl
+      ? [`Status: ${webUrl.replace(/\/$/, "")}/#/s/${r.subscription}`]
+      : []),
     `Target: ${EXPLORER}/entity/${r.subject}`,
     `Receipt: ${EXPLORER}/entity/${r.key}`,
     ...(r.tx ? [`Tx: ${EXPLORER}/tx/${r.tx}`] : []),
@@ -77,6 +85,7 @@ export function createHandler(o: {
   // the socket: a fresh receipt would read as null and be skipped for good (audit M5, as the
   // worker's M7). Without it the lag check is skipped.
   headNow?: () => Promise<bigint>;
+  webUrl?: string; // the web app, for each alert's Status link
 }) {
   const owners = new Set(o.trusted.map((a) => a.toLowerCase()));
   return async (e: EntityEvent) => {
@@ -106,7 +115,11 @@ export function createHandler(o: {
     // ponytail: marked before the sends finish, so a crash with DMs still queued loses them
     // (at most once). A persistent outbox would make it at least once.
     if (!o.db.markDelivered(r.triggerId)) return;
-    const text = formatReceipt({ ...r, tx: e.transactionHash }, label);
+    const text = formatReceipt(
+      { ...r, tx: e.transactionHash },
+      label,
+      o.webUrl,
+    );
     for (const chat of chats) o.enqueue(chat, text);
   };
 }
@@ -218,6 +231,7 @@ export async function startDelivery(o: {
   trusted: readonly Hex[];
   checkpointFile: string; // keep it next to the DB, on the volume
   send: (chatId: number, text: string) => Promise<unknown>;
+  webUrl?: string;
 }) {
   await mkdir(dirname(o.checkpointFile), { recursive: true });
   // First boot: one hour back, like the worker (LLD §3.2 step 1).
@@ -231,6 +245,7 @@ export async function startDelivery(o: {
     trusted: o.trusted,
     enqueue: queue.push,
     headNow: () => o.http.getBlockNumber(),
+    webUrl: o.webUrl,
   });
   let stopped = false;
   let chain = Promise.resolve();
@@ -276,5 +291,8 @@ export async function startDelivery(o: {
     stopped = true;
     stopStream();
     await chain;
+    // The DMs already queued go out before the DB closes, so a redeploy doesn't drop them (audit
+    // RL-7). index.ts caps the wait at 5 s; a DM still backing off then is lost, as in a crash.
+    await queue.idle();
   };
 }

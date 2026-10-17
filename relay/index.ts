@@ -80,6 +80,7 @@ const stopDelivery = await startDelivery({
   trusted: cfg.trustedWorkers,
   // Next to the DB, so both live on the host's volume and survive a redeploy together.
   checkpointFile: join(dirname(cfg.dbPath), "relay-checkpoint.json"),
+  webUrl: cfg.webUrl,
   send: (chatId, text) =>
     bot.api.sendMessage(chatId, text, {
       link_preview_options: { is_disabled: true },
@@ -117,9 +118,10 @@ server.listen(cfg.port, () =>
   console.log(`[relay] http on :${cfg.port} (GET /health, POST /sponsor)`),
 );
 
-// Graceful: stop taking updates and events, let the delivery chain and checkpoint finish (≤ 5 s),
-// then close the DB. DMs still queued are lost (see deliver.ts). allSettled, not all: bot.stop()
-// makes one last Telegram call, and if that rejects, all() would skip the rest of the shutdown.
+// Graceful: stop taking updates and events, let the delivery chain, checkpoint and queued DMs
+// finish (≤ 5 s), then close the DB. DMs still queued after that are lost (see deliver.ts).
+// allSettled, not all: bot.stop() makes one last Telegram call, and if that rejects, all() would
+// skip the rest of the shutdown.
 for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.once(signal, async () => {
     console.log(`[relay] ${signal}, stopping`);

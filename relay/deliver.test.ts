@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmdirSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { EntityEvent, PublicArkivClient } from "@arkiv-network/sdk";
@@ -242,6 +250,16 @@ test("expired says 'not renewed by block X' and links receipt, target and tx", (
   assert.match(text, /\/tx\/0xe{64}/);
 });
 
+test("with WEB_URL, an alert opens on the subscription's Status page first", () => {
+  const text = formatReceipt(base, "x", "https://app.example/");
+  assert.match(
+    text,
+    new RegExp(`\n\nStatus: https://app\\.example/#/s/${SUB}\n`),
+  );
+  assert.equal(formatReceipt(base, "x", undefined), formatReceipt(base, "x"));
+  assert.doesNotMatch(formatReceipt(base, "x"), /Status:/);
+});
+
 test("keep_skipped includes the reason", () => {
   const text = formatReceipt(
     { ...base, event: "keep_skipped", note: "already_extended" },
@@ -400,5 +418,68 @@ test("stop() mid-retry leaves the checkpoint before the unhandled event", async 
     assert.ok(saved < 102n, `checkpoint ${saved} passed the unhandled event`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --- RL-7: a graceful stop (a redeploy) sends the DMs already queued before the DB closes ---
+
+test("stop() waits for queued DMs to go out", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "deliver-"));
+  let onEvent!: (e: EntityEvent) => void;
+  let onHead!: (n: bigint) => void;
+  const ws = {
+    watchEntityEvents: (o: { onEvent: typeof onEvent }) => (
+      (onEvent = o.onEvent),
+      () => {}
+    ),
+    watchBlockNumber: (o: { onBlockNumber: typeof onHead }) => (
+      (onHead = o.onBlockNumber),
+      () => {}
+    ),
+  };
+  const entities = new Map<string, unknown>([
+    [k(1), receiptRpc(k(1), A)],
+    [
+      SUB,
+      rpcEntity(
+        SUB,
+        STRANGER,
+        { project: "prometheus", kind: "subscription", trigger: "expired" },
+        { v: 1, label: "Lapse canary" },
+      ),
+    ],
+  ]);
+  const http = {
+    getBlockNumber: async () => 101n,
+    getLogs: async () => [],
+    request: async ({ params }: { params: [string] }) =>
+      entities.get(params[0]) ?? null,
+  } as unknown as PublicArkivClient;
+  const db = openDb(":memory:");
+  db.follow(1, SUB);
+  const sent: number[] = [];
+  try {
+    const stop = await startDelivery({
+      ws: ws as never,
+      http,
+      db,
+      trusted: TRUSTED,
+      checkpointFile: join(dir, "checkpoint.json"),
+      send: async (chat) => {
+        await new Promise((r) => setTimeout(r, 30)); // Telegram's round trip
+        sent.push(chat);
+      },
+    });
+    onHead(101n); // the catch-up runs and goes live
+    await new Promise((r) => setTimeout(r, 50));
+    onEvent({ ...created(k(1), A), blockNumber: 101n } as EntityEvent);
+    await new Promise((r) => setTimeout(r, 10)); // handled and queued; the send is in flight
+    await stop(); // SIGTERM now
+    assert.deepEqual(sent, [1]);
+  } finally {
+    // Only what this test wrote: the checkpoint, then its folder.
+    const file = join(dir, "checkpoint.json");
+    if (existsSync(file)) unlinkSync(file);
+    rmdirSync(dir);
   }
 });
