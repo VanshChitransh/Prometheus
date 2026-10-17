@@ -5,18 +5,55 @@
 // Replies are plain text: labels are user-written, and Markdown/HTML parsing would let them break it.
 
 import type { PublicArkivClient } from "@arkiv-network/sdk";
-import { Bot } from "grammy";
+import {
+  Bot,
+  HttpError,
+  type BotConfig,
+  type Context,
+  type Transformer,
+} from "grammy";
 import type { Hex } from "viem";
 import { rawGetEntity } from "../shared/arkiv.ts";
 import { decodeKey } from "../shared/deeplink.ts";
+import { inBatches } from "../shared/limit.ts";
 import { decodeSubscription } from "../shared/subscription.ts";
 import type { Db } from "./db.ts";
 
 const short = (key: string) => `${key.slice(0, 10)}…`;
+// 40 `/list` lines ("nn. " + an 80-character label + " · 0x12345678…") stay under Telegram's 4096
+// characters per message, and bound the label reads one /list makes.
+const MAX_FOLLOWS = 40;
+
+// Every Bot API call passes through this: bot.api (DMs, polling, the menu) and ctx.reply, because
+// grammY copies bot.api's transformers into each update's ctx.api.
+// - No link previews unless asked: labels are user-written, so a link in one mustn't unfurl as ours.
+// - A network error carries node-fetch's FetchError, whose message is the request URL, /bot<token>/…
+//   Rebuilt without it, so no log line can leak the token (audit RL-1). Still an HttpError, so
+//   grammY keeps retrying polling.
+const apiGuard =
+  (token: string): Transformer =>
+  async (prev, method, payload, signal) => {
+    if (method === "sendMessage")
+      payload = { link_preview_options: { is_disabled: true }, ...payload };
+    try {
+      return await prev(method, payload, signal);
+    } catch (e) {
+      if (!(e instanceof HttpError)) throw e;
+      const hide = (s: string) => s.replaceAll(token, "<token>");
+      throw new HttpError(hide(e.message), hide(String(e.error)));
+    }
+  };
 
 // Not started here: the entrypoint (T3.4) owns long polling and shutdown.
-export function createBot(token: string, db: Db, client: PublicArkivClient) {
-  const bot = new Bot(token);
+// `config` is for tests: they point the API at a local fake Telegram.
+export function createBot(
+  token: string,
+  db: Db,
+  client: PublicArkivClient,
+  config?: BotConfig<Context>,
+) {
+  const bot = new Bot(token, config);
+  bot.api.config.use(apiGuard(token));
   const dm = bot.chatType("private");
 
   // The label of a live prometheus subscription; null if it expired, never existed, or isn't one.
@@ -38,6 +75,11 @@ export function createBot(token: string, db: Db, client: PublicArkivClient) {
       return ctx.reply(
         "That link looks broken. Open it again from the web app.",
       );
+    const follows = db.listFollows(ctx.chat.id);
+    if (follows.length >= MAX_FOLLOWS && !follows.includes(key))
+      return ctx.reply(
+        `You follow ${MAX_FOLLOWS} already. Stop one with /stop <number>, then open the link again.`,
+      );
     const label = await labelOf(key);
     if (label === null)
       return ctx.reply(
@@ -52,10 +94,10 @@ export function createBot(token: string, db: Db, client: PublicArkivClient) {
   dm.command("list", async (ctx) => {
     const keys = db.listFollows(ctx.chat.id);
     if (!keys.length) return ctx.reply("You're not following anything yet.");
-    // ponytail: one lookup per follow, all at once; batch them if a chat ever follows hundreds.
-    // A failed lookup marks only its own line, so one bad read can't fail the whole list.
-    const labels = await Promise.all(
-      keys.map((k) => labelOf(k as Hex).catch(() => undefined)),
+    // One lookup per follow (at most MAX_FOLLOWS), 16 at a time. A failed lookup marks only its
+    // own line, so one bad read can't fail the whole list.
+    const labels = await inBatches(keys, (k) =>
+      labelOf(k as Hex).catch(() => undefined),
     );
     const lines = keys.map(
       (k, i) =>
