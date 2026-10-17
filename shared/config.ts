@@ -24,6 +24,9 @@ export type RelayConfig = Base & {
   dbPath: string;
   port: number;
   webUrl?: string; // the deployed web app, opened as the Telegram Mini App
+  openrouterKey?: string; // unset = the docs assistant (POST /ask) is off
+  askModels?: string[]; // OpenRouter model ids, first choice first; unset = ask.ts FREE_MODELS
+  askDailyCap: number; // questions per UTC day, across everyone
 };
 type Configs = { worker: WorkerConfig; relay: RelayConfig };
 export type Role = keyof Configs;
@@ -111,6 +114,18 @@ export function loadConfig<R extends Role>(
       webUrl: env.WEB_URL?.trim()
         ? read("WEB_URL", url("https:"), "an https:// URL")
         : undefined,
+      // Optional: the docs assistant on OpenRouter. Its free models allow 50 requests a day on an
+      // account that never bought credits, so the default cap stays just under that.
+      openrouterKey: env.OPENROUTER_API_KEY?.trim() || undefined,
+      askModels:
+        env.ASK_MODELS?.split(",")
+          .map((m) => m.trim())
+          .filter(Boolean) || undefined,
+      askDailyCap: Number(
+        env.ASK_DAILY_CAP?.trim()
+          ? read("ASK_DAILY_CAP", (v) => /^\d+$/.test(v), "a whole number")
+          : "45",
+      ),
     };
   }
 

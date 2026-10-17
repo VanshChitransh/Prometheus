@@ -1,20 +1,29 @@
-// The relay's HTTP API (LLD §6.2): GET /health and POST /sponsor. Node only.
+// The relay's HTTP API (LLD §6.2): GET /health, POST /sponsor and POST /ask (docs chat). Node only.
 // A request handler, not a server: index.ts listens, tests mount it on a throwaway port.
-import type { IncomingMessage, RequestListener } from "node:http";
+import type {
+  IncomingMessage,
+  RequestListener,
+  ServerResponse,
+} from "node:http";
+import type { AskReply } from "./ask.ts";
 import type { SponsorReply } from "./sponsor.ts";
 
 const MAX_BODY = 8_192; // bytes; a /sponsor body is ~1 KB
+const MAX_ASK_BODY = 65_536; // a question plus up to 5 earlier turns (ask.ts caps them)
 // /health is public and each lookup spends quota (one free count per worker), so callers share one
 // answer for this long: hammering the endpoint can't drain the quota delivery depends on.
 const HEALTH_TTL_MS = 30_000;
 
 // Refused past MAX_BODY before parsing, so nobody can stream junk into memory.
-async function readJson(req: IncomingMessage): Promise<unknown> {
+async function readJson(
+  req: IncomingMessage,
+  max = MAX_BODY,
+): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req as AsyncIterable<Buffer>) {
     size += chunk.length;
-    if (size > MAX_BODY) throw new RangeError("body too large");
+    if (size > max) throw new RangeError("body too large");
     chunks.push(chunk);
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -33,6 +42,7 @@ const CORS = {
 export function createHttpHandler(o: {
   sponsor: (body: unknown) => Promise<SponsorReply>;
   workersAlive: () => Promise<string[]>;
+  ask?: (body: unknown, ip: string, signal: AbortSignal) => AskReply; // unset = /ask is off
   now?: () => number; // ms, like Date.now; tests pass a fake clock
 }): RequestListener {
   const now = o.now ?? Date.now;
@@ -64,7 +74,7 @@ export function createHttpHandler(o: {
       res.end(JSON.stringify(body));
     };
     try {
-      await route(req, json, () => {
+      await route(req, res, json, () => {
         res.writeHead(204, { ...CORS, "access-control-max-age": "86400" });
         res.end();
       });
@@ -76,6 +86,7 @@ export function createHttpHandler(o: {
 
   async function route(
     req: IncomingMessage,
+    res: ServerResponse,
     json: (status: number, body: unknown) => void,
     preflight: () => void,
   ) {
@@ -83,20 +94,69 @@ export function createHttpHandler(o: {
       return json(400, { error: "Bad request." });
     const path = new URL(req.url ?? "/", "http://relay").pathname;
     if (req.method === "OPTIONS") return preflight();
-    if (req.method === "POST" && path === "/sponsor") {
-      let body: unknown;
+    const body = async (max?: number) => {
       try {
-        body = await readJson(req);
+        return { ok: await readJson(req, max) };
       } catch (e) {
-        return e instanceof RangeError
-          ? json(413, { error: "Request too large." })
-          : json(400, { error: "Send JSON." });
+        json(e instanceof RangeError ? 413 : 400, {
+          error: e instanceof RangeError ? "Request too large." : "Send JSON.",
+        });
       }
-      const r = await o.sponsor(body); // a throw is answered 500 by the caller
+    };
+    if (req.method === "POST" && path === "/sponsor") {
+      const b = await body();
+      if (!b) return;
+      const r = await o.sponsor(b.ok); // a throw is answered 500 by the caller
       return json(r.status, r.body);
+    }
+    if (req.method === "POST" && path === "/ask") {
+      if (!o.ask) return json(503, { error: "The docs assistant is off." });
+      const b = await body(MAX_ASK_BODY);
+      if (!b) return;
+      // The reader closing the panel (or the tab) stops the model mid-answer, and its spend.
+      const ac = new AbortController();
+      res.on("close", () => ac.abort());
+      const r = o.ask(b.ok, clientIp(req), ac.signal);
+      if (!("stream" in r)) return json(r.status, r.body);
+      return sse(res, r.stream, ac.signal);
     }
     if (req.method === "GET" && path === "/health")
       return json(200, { ok: true, workersAlive: await workersAlive() });
     json(404, { error: "not found" });
   }
+}
+
+// Behind Caddy (compose.yaml) the first X-Forwarded-For entry is the client: Caddy drops whatever an
+// untrusted client sent. Run without a proxy, it can be spoofed, so a public relay needs Caddy in front.
+function clientIp(req: IncomingMessage) {
+  const fwd = req.headers["x-forwarded-for"];
+  const first = (Array.isArray(fwd) ? fwd[0] : fwd)?.split(",")[0]?.trim();
+  return first || req.socket.remoteAddress || "unknown";
+}
+
+// One `data: {"t": "..."}` event per text delta, then `data: [DONE]`. A failure after the headers went
+// out can't change the status, so it arrives as a `data: {"error": ...}` event instead.
+async function sse(
+  res: ServerResponse,
+  chunks: AsyncIterable<string>,
+  signal: AbortSignal,
+) {
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache",
+    ...CORS,
+  });
+  try {
+    for await (const t of chunks)
+      res.write(`data: ${JSON.stringify({ t })}\n\n`);
+    res.write("data: [DONE]\n\n");
+  } catch (e) {
+    if (!signal.aborted) {
+      console.error("[relay] /ask failed:", e);
+      res.write(
+        `data: ${JSON.stringify({ error: "The assistant failed. Try again." })}\n\n`,
+      );
+    }
+  }
+  res.end();
 }

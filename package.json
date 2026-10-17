@@ -15,7 +15,8 @@
     "web": "vite",
     "web:build": "vite build",
     "seed": "node --env-file=.env scripts/seed.ts",
-    "probe": "node --env-file=.env --env-file=.env.worker-a scripts/probe.ts"
+    "probe": "node --env-file=.env --env-file=.env.worker-a scripts/probe.ts",
+    "openrouter:login": "node scripts/openrouter-login.ts"
   },
   "dependencies": {
     "@arkiv-network/sdk": "0.8.1",

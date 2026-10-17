@@ -106,3 +106,23 @@ test("the worker's version is GIT_SHA, the commit it was built from, or dev with
     /GIT_SHA must be/,
   );
 });
+
+test("relay docs assistant: off without a key, cap defaults to 45", () => {
+  const c = loadConfig("relay", relay);
+  assert.equal(c.openrouterKey, undefined);
+  assert.equal(c.askModels, undefined);
+  assert.equal(c.askDailyCap, 45);
+  const on = loadConfig("relay", {
+    ...relay,
+    OPENROUTER_API_KEY: "sk-or-test",
+    ASK_MODELS: "a/b:free, c/d:free",
+    ASK_DAILY_CAP: "20",
+  });
+  assert.equal(on.openrouterKey, "sk-or-test");
+  assert.deepEqual(on.askModels, ["a/b:free", "c/d:free"]);
+  assert.equal(on.askDailyCap, 20);
+  assert.throws(
+    () => loadConfig("relay", { ...relay, ASK_DAILY_CAP: "lots" }),
+    /ASK_DAILY_CAP must be/,
+  );
+});
