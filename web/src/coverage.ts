@@ -1,6 +1,6 @@
-// Coverage maths for #/coverage (T4.6): pure, no DOM, no network.
-// Worker A fires; B waits delay_blocks and skips what A already did. So a normal trigger has one
-// receipt (A's), a B-only trigger is a failover ("covered by B"), and A+B is a harmless race.
+// Activity maths for #/coverage (T4.6): pure, no DOM, no network.
+// Worker A fires; B waits delay_blocks and skips what A already did. Clients see one row per
+// trigger whoever delivered it; the per-worker split is only for the operator section.
 // Real gaps are triggers with no receipt at all.
 import type { Hex } from "viem";
 import type { Receipt } from "../../shared/receipt.ts";
@@ -9,6 +9,7 @@ import type { Sub } from "../../shared/subscription.ts";
 
 export type TriggerRow = {
   triggerId: string;
+  key: Hex; // the first receipt's: the on-chain proof a client can open
   event: Event; // the first receipt's; a keep's outcomes share one id
   subject: Hex;
   subscription: Hex;
@@ -45,6 +46,7 @@ export function groupByTrigger(receipts: readonly Receipt[]): TriggerRow[] {
         r.triggerId,
         (row = {
           triggerId: r.triggerId,
+          key: r.key,
           event: r.event,
           subject: r.subject,
           subscription: r.subscription,
@@ -62,21 +64,29 @@ export function groupByTrigger(receipts: readonly Receipt[]): TriggerRow[] {
   );
 }
 
-// "normal" | "covered by B" | "delivered twice", for one row.
-export function rowStatus(row: TriggerRow, trusted: readonly Hex[]) {
-  if (row.late.size > 1) return "delivered twice";
-  if (row.late.has(trusted[0])) return "normal";
-  const by = trusted.findIndex((a) => row.late.has(a));
-  return `covered by ${workerName(by)}`;
+// Blocks until the first worker delivered it; undefined if no receipt says.
+export function firstLate(row: TriggerRow) {
+  const known = [...row.late.values()].filter((l) => l !== undefined);
+  return known.length ? known.reduce((a, b) => (a < b ? a : b)) : undefined;
 }
 
+// The typical (median) delivery delay across rows, for the client's one-line summary.
+export function typicalLate(rows: readonly TriggerRow[]) {
+  const lates = rows
+    .map(firstLate)
+    .filter((l) => l !== undefined)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return lates[Math.floor((lates.length - 1) / 2)];
+}
+
+// Per-worker numbers for the operator section.
 export function summarize(
   receipts: readonly Receipt[],
   rows: readonly TriggerRow[],
   trusted: readonly Hex[],
   live: readonly boolean[],
-) {
-  const workers: WorkerStat[] = trusted.map((address, i) => {
+): WorkerStat[] {
+  return trusted.map((address, i) => {
     const lates = rows
       .map((r) => r.late.get(address))
       .filter((l) => l !== undefined)
@@ -94,28 +104,6 @@ export function summarize(
       ),
     };
   });
-
-  const twice = rows.filter((r) => r.late.size > 1).length;
-  const covered = rows.filter((r) => !r.late.has(trusted[0])).length;
-  const [primary, ...backups] = workers;
-  let headline: string;
-  if (workers.every((w) => !w.live))
-    headline = "No worker is live: nothing is being delivered";
-  else if (workers.every((w) => w.live))
-    headline = `All ${workers.length} workers live · ${rows.length} triggers in 24 h · ${covered} covered by failover · ${twice} delivered twice`;
-  else {
-    const parts: string[] = [];
-    if (!primary.live) {
-      const by = backups.filter((w) => w.only > 0).map((w) => w.name);
-      parts.push(
-        `${primary.name} offline · ${covered} covered by ${by.join(" and ") || "no one yet"}`,
-      );
-    }
-    for (const w of backups)
-      if (!w.live) parts.push(`${w.name} offline · no failover backup`);
-    headline = parts.join(" · ");
-  }
-  return { workers, headline };
 }
 
 // `expired` subscriptions whose target is gone and has no trusted `expired` receipt.

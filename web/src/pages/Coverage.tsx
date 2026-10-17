@@ -1,8 +1,9 @@
-// #/coverage (T4.6, LLD §7): public proof of reliability and gaps, read straight from Arkiv. Each
-// section loads on its own, so a rate-limited query blanks only its section.
+// #/coverage, "Activity" (T4.6, LLD §7): what fired in the last day and the on-chain proof of each,
+// read straight from Arkiv. Clients see one feed; which worker delivered it is folded away for the
+// operator. Each section loads on its own, so a rate-limited query blanks only its section.
 import { u64 } from "@arkiv-network/sdk/attr";
 import { eq, gte } from "@arkiv-network/sdk/query";
-import { CheckCircle2 } from "lucide-react";
+import { ChevronRight, ExternalLink } from "lucide-react";
 import { useState } from "react";
 import type { Hex } from "viem";
 import {
@@ -16,9 +17,8 @@ import { decodeSubscription } from "../../../shared/subscription.ts";
 import {
   expiredGaps,
   groupByTrigger,
-  rowStatus,
   summarize,
-  workerName,
+  typicalLate,
   type TriggerRow,
   type WorkerStat,
 } from "../coverage.ts";
@@ -32,11 +32,11 @@ import {
 import {
   ago,
   Badge,
-  BLOCK_MS,
   BlocksLoader,
   Button,
   cx,
   Dot,
+  duration,
   ErrorText,
   Group,
   Hash,
@@ -45,7 +45,7 @@ import {
   Row,
   useLoad,
 } from "../ui/kit.tsx";
-import { EventGlyph, lateness } from "../ui/Receipts.tsx";
+import { EventGlyph } from "../ui/Receipts.tsx";
 import { reader } from "../wallet.ts";
 
 // A worker's heartbeat entity lapses within 30 min of it stopping (LLD §2.1): free count per worker.
@@ -84,19 +84,24 @@ async function expiredChecks() {
 
 async function load() {
   const head = await reader.getBlockNumber();
-  const wall = Date.now();
-  const since = head - BigInt(BLOCKS_PER_DAY);
   const [receipts, live] = await Promise.all([
-    fetchReceipts(gte("trigger_block", u64(since))),
+    fetchReceipts(gte("trigger_block", u64(head - BigInt(BLOCKS_PER_DAY)))),
     liveness(),
   ]);
   const rows = groupByTrigger(receipts);
+  // Free reads, one per subscription in the feed: a name reads better than a key.
+  const keys = [...new Set(rows.map((r) => r.subscription.toLowerCase()))];
+  const labels = new Map<string, string>();
+  await inBatches(keys, async (k) => {
+    const e = await rawGetEntity(reader, k as Hex);
+    const d = e && decodeSubscription(e);
+    if (d?.ok) labels.set(k, d.sub.label);
+  });
   return {
     head,
-    wall,
-    since,
     rows,
-    ...summarize(receipts, rows, TRUSTED, live),
+    labels,
+    workers: summarize(receipts, rows, TRUSTED, live),
   };
 }
 
@@ -110,22 +115,22 @@ export function Coverage() {
   if (!TRUSTED.length)
     return <ErrorText error="This site has no trusted workers configured." />;
   const d = data.data;
-  const allLive = d?.workers.every((w) => w.live);
+  // One worker is enough to deliver: the client only needs to know whether anything is.
+  const running = d?.workers.some((w) => w.live);
 
   return (
     <div className="space-y-12">
       <PageHead
-        title="Coverage"
-        sub="The last 24 hours, worked out in your browser from the receipts on Arkiv. You can check every number here yourself."
+        title="Activity"
+        sub="Every alert and renewal from the last 24 hours, read straight from Arkiv. Each one links to its transaction, so you can check it yourself."
         right={
           d && (
             <Badge
-              tone={allLive ? "ok" : "bad"}
+              tone={running ? "ok" : "bad"}
               className="h-8 px-3.5 text-[13px]"
             >
-              <Dot tone={allLive ? "ok" : "bad"} live={allLive} />
-              {/* The full headline when a worker is down: "A offline · N covered by B". */}
-              {allLive ? "Both workers live" : d.headline}
+              <Dot tone={running ? "ok" : "bad"} live={running} />
+              {running ? "Running" : "Delivery is down"}
             </Badge>
           )
         }
@@ -135,223 +140,87 @@ export function Coverage() {
         <ErrorText error={data.error} />
       ) : !d ? (
         <Group>
-          <BlocksLoader label="Reading the last 24 hours of receipts from Arkiv…" />
+          <BlocksLoader label="Reading the last 24 hours from Arkiv…" />
         </Group>
       ) : (
-        <>
-          <Summary rows={d.rows} workers={d.workers} gaps={gaps.data?.length} />
-          <Chart rows={d.rows} since={d.since} head={d.head} wall={d.wall} />
+        <Summary rows={d.rows} missed={gaps.data?.length} />
+      )}
+
+      {gaps.error ? (
+        <ErrorText error={gaps.error} />
+      ) : (
+        !!gaps.data?.length && (
           <Group
-            title="Workers"
-            note="Each worker proves it's alive with a heartbeat entity on Arkiv that lapses within 30 minutes if it stops."
+            title={`Missed (${num(gaps.data.length)})`}
+            note="Records that expired without their alert. One that expired in the last minute can show here until its alert lands."
+          >
+            {gaps.data.map((s) => (
+              <Row key={s.key} className="justify-between">
+                <a
+                  href={`#/s/${s.key}`}
+                  className="font-medium hover:text-accent"
+                >
+                  {s.label || "Untitled"}
+                </a>
+                <Hash
+                  value={s.targetKey!}
+                  href={`${EXPLORER}/entity/${s.targetKey}`}
+                />
+              </Row>
+            ))}
+          </Group>
+        )
+      )}
+
+      {d && <Feed rows={d.rows} head={d.head} labels={d.labels} />}
+
+      {d && (
+        <details className="group">
+          <summary className="flex cursor-pointer list-none items-center gap-1 px-4 text-[13px] font-medium text-ink-2 hover:text-ink [&::-webkit-details-marker]:hidden">
+            <ChevronRight className="size-4 transition-transform duration-150 group-open:rotate-90" />
+            Under the hood
+          </summary>
+          <Group
+            className="mt-2"
+            note="Worker A acts first; B waits and acts only on what A missed. Each proves it's alive with a heartbeat entity on Arkiv that lapses within 30 minutes if it stops."
           >
             {d.workers.map((w, i) => (
               <WorkerRow key={w.address} w={w} i={i} />
             ))}
           </Group>
-        </>
+        </details>
       )}
-
-      <Group
-        title="Gaps"
-        note="Expired subscriptions whose target is gone with no receipt. One that expired in the last minute can show here until its receipt lands."
-      >
-        {gaps.error ? (
-          <Row>
-            <ErrorText error={gaps.error} />
-          </Row>
-        ) : !gaps.data ? (
-          <BlocksLoader label="Checking every expired target…" />
-        ) : !gaps.data.length ? (
-          <Row>
-            <CheckCircle2 className="size-5 text-ok" />
-            <span>None. Every expired target has its receipt.</span>
-          </Row>
-        ) : (
-          gaps.data.map((s) => (
-            <Row key={s.key} className="justify-between">
-              <a
-                href={`#/s/${s.key}`}
-                className="font-medium hover:text-accent"
-              >
-                {s.label || "Untitled"}
-              </a>
-              <Hash
-                value={s.targetKey!}
-                href={`${EXPLORER}/entity/${s.targetKey}`}
-              />
-            </Row>
-          ))
-        )}
-      </Group>
-
-      {d && <Triggers rows={d.rows} head={d.head} />}
     </div>
   );
 }
 
 // The headline numbers as a sentence: the type is the display (frontend-design: not stat tiles).
-function Summary({
-  rows,
-  workers,
-  gaps,
-}: {
-  rows: TriggerRow[];
-  workers: WorkerStat[];
-  gaps?: number;
-}) {
-  const covered = rows.filter((r) => !r.late.has(TRUSTED[0])).length;
-  const twice = rows.filter((r) => r.late.size > 1).length;
-  const [a] = workers;
+function Summary({ rows, missed }: { rows: TriggerRow[]; missed?: number }) {
   const b = (v: string | number) => (
     <span className="tnum font-semibold text-ink">{v}</span>
   );
+  const late = typicalLate(rows);
   return (
     <p className="max-w-[34ch] text-[26px] leading-[1.32] font-medium tracking-[-0.02em] text-ink-2 sm:text-[34px]">
-      {b(plural(rows.length, "trigger"))} fired in the last day. Worker A
-      delivered {b(num(a.delivered))}
-      {workers.length > 1 &&
-        (covered ? (
-          <>, and worker B covered {b(`the ${num(covered)}`)} that A missed</>
-        ) : (
-          <>, and worker B had nothing to cover</>
-        ))}
-      .{" "}
-      {twice ? (
-        <>{b(plural(twice, "was", "were"))} delivered twice, and </>
-      ) : null}
-      {gaps === undefined ? (
-        "…"
-      ) : (
+      {rows.length ? (
         <>
-          {b(gaps ? plural(gaps, "target") : twice ? "none" : "None")} went
-          without a receipt.
+          {b(plural(rows.length, "event"))} in the last day
+          {late !== undefined && (
+            <>, delivered usually within {b(duration(late > 1n ? late : 1n))}</>
+          )}
+          .{" "}
         </>
+      ) : (
+        "Nothing fired in the last day. "
+      )}
+      {missed === undefined ? (
+        "…"
+      ) : missed ? (
+        <>{b(plural(missed, "alert"))} missed.</>
+      ) : (
+        <>{b("None")} missed.</>
       )}
     </p>
-  );
-}
-
-// 24 hourly bars stacked by outcome; point at one to ring it and read its counts (bencho stacked-bars).
-const HOURS = 24;
-const SEGMENTS = [
-  ["normal", "Delivered by A", "bg-ink-3"],
-  ["covered", "Covered by B", "bg-accent"],
-  ["twice", "Delivered twice", "bg-warn"],
-] as const;
-
-function Chart({
-  rows,
-  since,
-  head,
-  wall,
-}: {
-  rows: TriggerRow[];
-  since: bigint;
-  head: bigint;
-  wall: number;
-}) {
-  const per = BigInt(BLOCKS_PER_DAY / HOURS);
-  const buckets = Array.from({ length: HOURS }, () => ({
-    normal: 0,
-    covered: 0,
-    twice: 0,
-  }));
-  for (const r of rows) {
-    const i = Number((r.triggerBlock - since) / per);
-    if (i < 0 || i >= HOURS) continue;
-    const s = rowStatus(r, TRUSTED);
-    buckets[i][
-      s === "normal" ? "normal" : s === "delivered twice" ? "twice" : "covered"
-    ]++;
-  }
-  const max = Math.max(
-    1,
-    ...buckets.map((b) => b.normal + b.covered + b.twice),
-  );
-  const [hover, setHover] = useState<number>();
-  const at = (i: number) =>
-    new Date(wall - Number(head - since - BigInt(i) * per) * BLOCK_MS);
-  const hour = new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-
-  const h = hover === undefined ? undefined : buckets[hover];
-  return (
-    <section
-      className="rounded-[22px] bg-cell p-5 sm:p-7"
-      aria-label="Triggers per hour"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="font-semibold">Triggers per hour</h2>
-          <p className="tnum mt-0.5 min-h-5 text-[13px] text-ink-2">
-            {h
-              ? `${hour.format(at(hover!))} to ${hour.format(at(hover! + 1))}: ${h.normal} by A, ${h.covered} covered by B${h.twice ? `, ${h.twice} twice` : ""}`
-              : "Point at an hour to see what happened in it."}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-ink-2">
-          {SEGMENTS.map(([k, label, bg]) => (
-            <span key={k} className="flex items-center gap-1.5">
-              <span className={cx("size-2.5 rounded-[3px]", bg)} />
-              {label}
-            </span>
-          ))}
-        </div>
-      </div>
-      <div
-        className="mt-6 flex h-40 items-end gap-[3px] sm:gap-1.5"
-        onPointerLeave={() => setHover(undefined)}
-      >
-        {buckets.map((b, i) => {
-          const total = b.normal + b.covered + b.twice;
-          return (
-            <button
-              key={i}
-              type="button"
-              aria-label={`${hour.format(at(i))}: ${total} triggers`}
-              onPointerEnter={() => setHover(i)}
-              onFocus={() => setHover(i)}
-              className="group relative flex h-full flex-1 cursor-default flex-col justify-end"
-            >
-              <span
-                className={cx(
-                  "flex w-full flex-col-reverse overflow-hidden rounded-[4px] transition-[opacity,box-shadow] duration-150",
-                  hover !== undefined && hover !== i && "opacity-40",
-                  hover === i &&
-                    "shadow-[0_0_0_2px_var(--cell),0_0_0_3.5px_var(--ink)]",
-                )}
-                style={{
-                  height: total ? `${Math.max(4, (total / max) * 100)}%` : 3,
-                }}
-              >
-                {total === 0 ? (
-                  <span className="h-full bg-fill" />
-                ) : (
-                  SEGMENTS.map(
-                    ([k, , bg]) =>
-                      b[k] > 0 && (
-                        <span
-                          key={k}
-                          className={bg}
-                          style={{ height: `${(b[k] / total) * 100}%` }}
-                        />
-                      ),
-                  )
-                )}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      <div className="tnum mt-2 flex justify-between text-[11px] text-ink-3">
-        <span>{hour.format(at(0))}</span>
-        <span>{hour.format(at(12))}</span>
-        <span>Now</span>
-      </div>
-    </section>
   );
 }
 
@@ -401,12 +270,20 @@ function WorkerRow({ w, i }: { w: WorkerStat; i: number }) {
   );
 }
 
-function Triggers({ rows, head }: { rows: TriggerRow[]; head: bigint }) {
+function Feed({
+  rows,
+  head,
+  labels,
+}: {
+  rows: TriggerRow[];
+  head: bigint;
+  labels: Map<string, string>;
+}) {
   const [all, setAll] = useState(false);
   const shown = all ? rows : rows.slice(0, 10);
   return (
     <Group
-      title={`Triggers (${num(rows.length)})`}
+      title={`Activity (${num(rows.length)})`}
       right={
         rows.length > 10 && (
           <Button
@@ -422,45 +299,35 @@ function Triggers({ rows, head }: { rows: TriggerRow[]; head: bigint }) {
     >
       {!rows.length ? (
         <Row>
-          <span className="text-ink-2">No triggers in the last 24 hours.</span>
+          <span className="text-ink-2">Nothing in the last 24 hours.</span>
         </Row>
       ) : (
-        shown.map((r) => {
-          const status = rowStatus(r, TRUSTED);
-          return (
-            <Row key={r.triggerId} inset={60}>
-              <EventGlyph event={r.event} />
-              <div className="min-w-0 flex-1">
-                <a
-                  href={`#/s/${r.subscription}`}
-                  className="font-medium hover:text-accent"
-                >
-                  {EVENT_TEXT[r.event]}
-                </a>
-                <div className="tnum flex flex-wrap items-center gap-x-1 text-[13px] text-ink-2">
-                  <span>{ago(head - r.triggerBlock)},</span>
-                  {[...r.late].map(([a, l], j) => (
-                    <span key={a}>
-                      {j > 0 && "and "}
-                      {workerName(TRUSTED.indexOf(a as Hex))} {lateness(l)}
-                    </span>
-                  ))}
-                </div>
+        shown.map((r) => (
+          <Row key={r.triggerId} inset={60}>
+            <EventGlyph event={r.event} />
+            <div className="min-w-0 flex-1">
+              <div className="font-medium">{EVENT_TEXT[r.event]}</div>
+              <div className="tnum truncate text-[13px] text-ink-2">
+                <a href={`#/s/${r.subscription}`} className="hover:text-accent">
+                  {/* No live entity to name it: the subscription was cancelled or lapsed. */}
+                  {labels.get(r.subscription.toLowerCase()) ??
+                    "Ended subscription"}
+                </a>{" "}
+                · {ago(head - r.triggerBlock)}
               </div>
-              <div className="hidden sm:block">
-                <Hash
-                  value={r.subject}
-                  href={`${EXPLORER}/entity/${r.subject}`}
-                />
-              </div>
-              {status !== "normal" && (
-                <Badge tone={status === "delivered twice" ? "warn" : "accent"}>
-                  {status[0].toUpperCase() + status.slice(1)}
-                </Badge>
-              )}
-            </Row>
-          );
-        })
+            </div>
+            <a
+              href={`${EXPLORER}/entity/${r.key}`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex shrink-0 items-center gap-1 text-[13px] text-accent transition-opacity hover:opacity-70"
+            >
+              <span className="hidden sm:inline">View transaction</span>
+              <span className="sm:hidden">Proof</span>
+              <ExternalLink className="size-3" />
+            </a>
+          </Row>
+        ))
       )}
     </Group>
   );

@@ -1,4 +1,4 @@
-// Receipts as an inset list, newest first: what happened, when, how late, which worker, the proof.
+// Receipts as an inset list, newest first: what happened, when, how late, the proof.
 import {
   AlertTriangle,
   BellRing,
@@ -13,12 +13,10 @@ import {
   WalletMinimal,
   type LucideIcon,
 } from "lucide-react";
-import type { Hex } from "viem";
 import type { Receipt } from "../../../shared/receipt.ts";
 import type { Event, KeepSkipReason } from "../../../shared/schema.ts";
-import { workerName } from "../coverage.ts";
-import { EVENT_TEXT, EXPLORER, SKIP_TEXT, TRUSTED } from "../receipts.ts";
-import { ago, cx, Group, num, Row } from "./kit.tsx";
+import { EVENT_TEXT, EXPLORER, SKIP_TEXT } from "../receipts.ts";
+import { ago, cx, duration, Group, num, Row } from "./kit.tsx";
 
 type Tone = "ok" | "warn" | "bad" | "accent" | "muted";
 export const EVENT_STYLE: Record<Event, [LucideIcon, Tone]> = {
@@ -62,18 +60,13 @@ export function EventGlyph({
   );
 }
 
-export const workerOf = (a: Hex) => {
-  const i = TRUSTED.indexOf(a);
-  return i < 0 ? "?" : workerName(i);
-};
-
-// "on time" for the block it fired in or the next; otherwise the blocks and seconds it took.
+// "on time" for the block it fired in or the next; otherwise how long it took, in clock time.
 export const lateness = (late: bigint | undefined) =>
   late === undefined
     ? "lateness unknown"
     : late <= 1n
       ? "on time"
-      : `${num(late)} blocks late`;
+      : `${duration(late)} late`;
 
 export function receiptTitle(r: Receipt) {
   const what =
@@ -116,8 +109,7 @@ export function Receipts({ list, head }: { list: Receipt[]; head: bigint }) {
                 </div>
               )}
               <div className="tnum mt-1 text-[13px] text-ink-2">
-                {ago(head - r.triggerBlock)}, worker {workerOf(r.creator)},{" "}
-                {lateness(late)}
+                {ago(head - r.triggerBlock)}, {lateness(late)}
               </div>
             </div>
             <a
@@ -126,7 +118,7 @@ export function Receipts({ list, head }: { list: Receipt[]; head: bigint }) {
               rel="noreferrer"
               className="mt-1 flex shrink-0 items-center gap-1 text-[13px] text-accent transition-opacity hover:opacity-70"
             >
-              Receipt <ExternalLink className="size-3" />
+              View transaction <ExternalLink className="size-3" />
             </a>
           </Row>
         );

@@ -63,13 +63,13 @@ const NAV: [string, string][] = [
   ["#/docs", "Docs"],
   ["#/docs/sdk", "SDK"],
   ["#/blog", "Blog"],
-  ["#/coverage", "Coverage"],
+  ["#/coverage", "Activity"],
 ];
 const APP_NAV: [string, string, LucideIcon][] = [
   ["#/", "Home", House],
   ["#/new", "New", PlusCircle],
   ["#/mine", "Subscriptions", ListChecks],
-  ["#/coverage", "Coverage", Activity],
+  ["#/coverage", "Activity", Activity],
 ];
 
 const hashPath = () => location.hash.slice(1) || "/";
@@ -259,7 +259,7 @@ const FOOTER: [string, string][] = [
   ["#/docs", "Docs"],
   ["#/docs/sdk", "SDK"],
   ["#/blog", "Blog"],
-  ["#/coverage", "Coverage"],
+  ["#/coverage", "Activity"],
   ["#/docs/run-a-worker", "Run a worker"],
   ["https://github.com/VanshChitransh/Prometheus", "GitHub"],
 ];
