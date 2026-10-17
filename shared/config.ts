@@ -18,6 +18,7 @@ export type RelayConfig = Base & {
   telegramToken: string;
   dbPath: string;
   port: number;
+  webUrl?: string; // the deployed web app, opened as the Telegram Mini App
 };
 type Configs = { worker: WorkerConfig; relay: RelayConfig };
 export type Role = keyof Configs;
@@ -97,6 +98,10 @@ export function loadConfig<R extends Role>(
       // Optional: on the host, point it at a mounted volume (Q-7) so follows survive a redeploy.
       dbPath: env.RELAY_DB_PATH?.trim() || "state/relay.db",
       port: Number(port),
+      // Optional: Telegram opens Mini Apps over https only.
+      webUrl: env.WEB_URL?.trim()
+        ? read("WEB_URL", url("https:"), "an https:// URL")
+        : undefined,
     };
   }
 

@@ -82,3 +82,15 @@ test("TRUSTED_WORKERS: a mistyped checksum is rejected; lowercase is normalized 
   });
   assert.deepEqual(c.trustedWorkers, [good]);
 });
+
+test("relay WEB_URL is optional and must be https (Telegram opens Mini Apps over https only)", () => {
+  assert.equal(loadConfig("relay", relay).webUrl, undefined);
+  assert.equal(
+    loadConfig("relay", { ...relay, WEB_URL: "https://app.example" }).webUrl,
+    "https://app.example",
+  );
+  assert.throws(
+    () => loadConfig("relay", { ...relay, WEB_URL: "http://app.example" }),
+    /WEB_URL must be an https:\/\/ URL/,
+  );
+});
