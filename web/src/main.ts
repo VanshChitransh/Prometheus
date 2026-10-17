@@ -1,14 +1,18 @@
-// Entry: the wallet bar in the header, and the page router below it.
+// Entry: the wallet bar in the header, and the page router below it. The same bundle runs as the
+// Telegram Mini App (telegram.ts).
 import { coveragePage } from "./pages/coverage.ts";
 import { minePage } from "./pages/mine.ts";
 import { newPage } from "./pages/new.ts";
 import { statusPage } from "./pages/status.ts";
-import { errorLine, startRouter } from "./router.ts";
+import { errorLine, link, p, startRouter } from "./router.ts";
+import { boot, FAUCET, tg } from "./telegram.ts";
 import {
   balance,
+  canSponsor,
   connectMetaMask,
-  hasLocalKey,
-  localKey,
+  glm,
+  requestSponsor,
+  storedKey,
   useLocalKey,
   wallet,
   type Wallet,
@@ -35,45 +39,91 @@ async function connect(get: () => Wallet | Promise<Wallet>, rerender = true) {
   }
 }
 
+// The relay sponsors wallets below this (relay/sponsor.ts FUNDED).
+const NEEDS_GLM = 10_000_000_000_000_000n; // 0.01 GLM
+
+const KEY_NOTE = {
+  browser:
+    "This key exists only in this browser. Clearing site data deletes it; export it to keep it.",
+  "telegram-secure":
+    "This key is in Telegram's secure storage on this phone and never leaves it. Export it to keep a copy.",
+  "telegram-device":
+    "This key is in Telegram's storage on this device only. Export it to keep a copy.",
+};
+
+// Some webviews (Telegram's among them) block the clipboard: fall back to showing the key.
+async function exportKey(b: HTMLButtonElement) {
+  const key = (await storedKey())!;
+  try {
+    await navigator.clipboard.writeText(key);
+    b.textContent = "Copied";
+  } catch {
+    prompt(
+      "Your private key. Keep it secret: anyone with it controls this wallet.",
+      key,
+    );
+  }
+}
+
 function renderWallet() {
   const w = wallet();
   if (!w) {
+    // The Telegram webview has no MetaMask.
     bar.replaceChildren(
-      button("Connect MetaMask", () => connect(connectMetaMask)),
-      button("Make a key in this browser", () => connect(useLocalKey)),
+      ...(tg
+        ? [button("Create my wallet", () => connect(useLocalKey))]
+        : [
+            button("Connect MetaMask", () => connect(connectMetaMask)),
+            button("Make a key in this browser", () => connect(useLocalKey)),
+          ]),
     );
     return;
   }
   const addr = document.createElement("code");
   addr.textContent = w.address;
-  addr.title = w.kind === "local" ? "key in this browser" : "MetaMask";
+  addr.title = w.kind === "local" ? "key on this device" : "MetaMask";
   const bal = document.createElement("span");
   bal.textContent = "… GLM";
+  const sponsor = document.createElement("span");
   balance(w.address).then(
-    (b) => (bal.textContent = `${b} GLM`),
+    (wei) => {
+      bal.textContent = glm(wei);
+      if (wei < NEEDS_GLM) sponsor.replaceChildren(...fundingHelp(w));
+    },
     () => (bal.textContent = "balance unavailable"),
   );
-  bar.replaceChildren(addr, " · ", bal);
+  bar.replaceChildren(addr, " · ", bal, " ", sponsor);
 
   if (w.kind === "local") {
-    const note = document.createElement("p");
+    const note = p(KEY_NOTE[w.storage ?? "browser"]);
     note.className = "note";
-    note.textContent =
-      "This key exists only in this browser. Clearing site data deletes it; export it to keep it.";
-    bar.append(
-      " ",
-      button("Export key", async (b) => {
-        await navigator.clipboard.writeText(localKey()!);
-        b.textContent = "Copied";
-      }),
-      note,
-    );
+    bar.append(" ", button("Export key", exportKey), note);
   }
 }
 
-// A generated key comes back on reload; MetaMask waits for a click (connecting is a prompt).
-if (hasLocalKey())
-  connect(useLocalKey, false); // before the first render
+// An unfunded wallet can't sign anything: free GLM inside Telegram, the faucet everywhere else.
+function fundingHelp(w: Wallet): (string | Node)[] {
+  const faucet = link(FAUCET, "faucet");
+  if (!canSponsor()) return ["Needs GLM: ", faucet];
+  return [
+    button("Get free GLM to start", async (b) => {
+      b.disabled = true;
+      b.textContent = "Sending…";
+      try {
+        await requestSponsor(w.address);
+        renderWallet();
+      } catch (e) {
+        b.replaceWith(errorLine(e), p("Or use the ", faucet, "."));
+      }
+    }),
+  ];
+}
+
+// A stored key comes back on reopen; MetaMask waits for a click (connecting is a prompt). The key is
+// read before the first render (storage is async), so pages draw once, with the wallet.
+boot();
+const stored = await storedKey().catch(() => null);
+if (stored) await connect(useLocalKey, false);
 else renderWallet();
 
 startRouter(app, [

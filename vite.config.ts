@@ -12,6 +12,8 @@ export default defineConfig(({ mode }) => {
         env.ARKIV_HTTP || "https://rpc.tiramisu.db-chain.testnet.arkiv.network",
       ),
       __TRUSTED_WORKERS__: JSON.stringify(env.TRUSTED_WORKERS ?? ""),
+      // The relay's public https URL, for free GLM in the Mini App; empty = the faucet link instead.
+      __RELAY_URL__: JSON.stringify(env.RELAY_PUBLIC_URL ?? ""),
       __BOT_NAME__: JSON.stringify(env.VITE_BOT_NAME ?? ""),
     },
   };

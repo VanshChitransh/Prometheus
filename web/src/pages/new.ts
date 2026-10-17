@@ -15,6 +15,7 @@ import {
 import { span, toDraft, toParams, type FormValues } from "../entityForm.ts";
 import { errorLine, link } from "../router.ts";
 import { searchBuilder, type SearchChoice } from "../searchBuilder.ts";
+import { telegramLink } from "../telegram.ts";
 import { reader, wallet } from "../wallet.ts";
 
 declare const __BOT_NAME__: string; // vite.config.ts
@@ -187,7 +188,7 @@ export function newPage(el: HTMLElement) {
     if (__BOT_NAME__)
       links.append(
         " · ",
-        link(
+        telegramLink(
           `https://t.me/${__BOT_NAME__}?start=${encodeKey(key)}`,
           "Follow in Telegram",
         ),

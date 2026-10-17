@@ -61,6 +61,17 @@ await bot.api
     { command: "stop", description: "Stop following one: /stop <number>" },
   ])
   .catch((e) => console.warn("[relay] setMyCommands failed:", e));
+// The Mini App's launch button beside the chat input; without WEB_URL, set it in @BotFather instead.
+if (cfg.webUrl)
+  await bot.api
+    .setChatMenuButton({
+      menu_button: {
+        type: "web_app",
+        text: "Open Prometheus",
+        web_app: { url: cfg.webUrl },
+      },
+    })
+    .catch((e) => console.warn("[relay] setChatMenuButton failed:", e));
 
 const stopDelivery = await startDelivery({
   ws: publicWs(cfg.ws),
