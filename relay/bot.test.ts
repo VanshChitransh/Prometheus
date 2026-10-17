@@ -143,3 +143,33 @@ test("messages go out without link previews unless the caller turns them on", as
     await tg.close();
   }
 });
+
+test("a chat follows at most 40; /list of 40 longest labels fits one message, read 16 at a time", async () => {
+  const tg = await fakeTelegram();
+  try {
+    // 41 live subscriptions, each with the longest label a worker accepts (80 characters).
+    const subs = new Map(
+      Array.from({ length: 41 }, (_, i) => [k(i + 1), "L".repeat(80)]),
+    );
+    const { client, reads } = node(subs);
+    const db = openDb(":memory:");
+    const config = { botInfo: ME, client: { apiRoot: tg.apiRoot } };
+    const bot = createBot(TOKEN, db, client, config);
+    const reply = async (text: string) => {
+      await bot.handleUpdate(command(text));
+      return tg.calls.at(-1)!.payload.text as string;
+    };
+    for (let i = 1; i <= 40; i++) await reply(`/start ${encodeKey(k(i))}`);
+    assert.match(await reply(`/start ${encodeKey(k(41))}`), /follow 40/);
+    assert.match(await reply(`/start ${encodeKey(k(40))}`), /Following/); // a repeat still works
+    assert.equal(db.listFollows(7).length, 40);
+
+    reads.max = 0;
+    const list = await reply("/list");
+    assert.match(list, /^40\. L{80} · /m);
+    assert.ok(list.length <= 4096, `/list is ${list.length} characters`);
+    assert.ok(reads.max <= 16, `${reads.max} label reads at once`);
+  } finally {
+    await tg.close();
+  }
+});

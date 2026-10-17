@@ -15,10 +15,14 @@ import {
 import type { Hex } from "viem";
 import { rawGetEntity } from "../shared/arkiv.ts";
 import { decodeKey } from "../shared/deeplink.ts";
+import { inBatches } from "../shared/limit.ts";
 import { decodeSubscription } from "../shared/subscription.ts";
 import type { Db } from "./db.ts";
 
 const short = (key: string) => `${key.slice(0, 10)}…`;
+// 40 `/list` lines ("nn. " + an 80-character label + " · 0x12345678…") stay under Telegram's 4096
+// characters per message, and bound the label reads one /list makes.
+const MAX_FOLLOWS = 40;
 
 // Every Bot API call passes through this: bot.api (DMs, polling, the menu) and ctx.reply, because
 // grammY copies bot.api's transformers into each update's ctx.api.
@@ -71,6 +75,11 @@ export function createBot(
       return ctx.reply(
         "That link looks broken. Open it again from the web app.",
       );
+    const follows = db.listFollows(ctx.chat.id);
+    if (follows.length >= MAX_FOLLOWS && !follows.includes(key))
+      return ctx.reply(
+        `You follow ${MAX_FOLLOWS} already. Stop one with /stop <number>, then open the link again.`,
+      );
     const label = await labelOf(key);
     if (label === null)
       return ctx.reply(
@@ -85,10 +94,10 @@ export function createBot(
   dm.command("list", async (ctx) => {
     const keys = db.listFollows(ctx.chat.id);
     if (!keys.length) return ctx.reply("You're not following anything yet.");
-    // ponytail: one lookup per follow, all at once; batch them if a chat ever follows hundreds.
-    // A failed lookup marks only its own line, so one bad read can't fail the whole list.
-    const labels = await Promise.all(
-      keys.map((k) => labelOf(k as Hex).catch(() => undefined)),
+    // One lookup per follow (at most MAX_FOLLOWS), 16 at a time. A failed lookup marks only its
+    // own line, so one bad read can't fail the whole list.
+    const labels = await inBatches(keys, (k) =>
+      labelOf(k as Hex).catch(() => undefined),
     );
     const lines = keys.map(
       (k, i) =>
