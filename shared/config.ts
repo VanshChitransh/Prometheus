@@ -16,6 +16,7 @@ export type WorkerConfig = Base & { privateKey: Hex; delayBlocks: number };
 export type RelayConfig = Base & {
   sponsorKey: Hex;
   telegramToken: string;
+  dbPath: string;
 };
 type Configs = { worker: WorkerConfig; relay: RelayConfig };
 export type Role = keyof Configs;
@@ -84,6 +85,8 @@ export function loadConfig<R extends Role>(
         (v) => /^\d+:[\w-]+$/.test(v),
         "<bot id>:<secret>",
       )!,
+      // Optional: on the host, point it at a mounted volume (Q-7) so follows survive a redeploy.
+      dbPath: env.RELAY_DB_PATH?.trim() || "state/relay.db",
     };
   }
 
