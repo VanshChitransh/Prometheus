@@ -1,0 +1,17 @@
+{
+  // Emits sdk/src plus the shared/ and web/src files it imports, so dist is self-contained.
+  // rootDir is the repo root, so they land at dist/sdk/src, dist/shared and dist/web/src.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "rewriteRelativeImportExtensions": true,
+    "declaration": true,
+    "stripInternal": true, // drops shared/arkiv.ts's publicWs (workers only) from the .d.ts
+    "target": "es2022",
+    "rootDir": "..",
+    "outDir": "dist"
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
+}

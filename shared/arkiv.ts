@@ -38,6 +38,7 @@ export const publicHttp = (url: string, accessKey?: string) =>
 // backfill the gap; stream.ts replays it (LLD §3.3). viem's webSocket can't send headers,
 // so live events use the anonymous quota. The SDK adds all of viem's public actions at runtime but
 // types only a subset; re-extending types watchBlockNumber (the heads stream) without changing behaviour.
+/** @internal Workers only. Its inferred viem type can't be written to a .d.ts, so the SDK build strips it. */
 export const publicWs = (url: string) =>
   createPublicClient({
     chain: tiramisu,
