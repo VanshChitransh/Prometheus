@@ -277,6 +277,27 @@
     border-top: 1px solid var(--sep);
     margin: 2.5em 0;
   }
+  /* Docs assistant answers (ui/AskPanel.tsx): the same prose, sized for a 440px panel. */
+  .prose-chat {
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .prose-chat h1,
+  .prose-chat h2,
+  .prose-chat h3 {
+    font-size: 16px;
+    margin: 1.2em 0 0.4em;
+  }
+  .prose-chat pre {
+    font-size: 12px;
+  }
+  .prose-chat table {
+    display: block;
+    overflow-x: auto;
+  }
+  .prose-chat p {
+    margin: 0.6em 0;
+  }
 }
 
 /* Home-page motion (Home.tsx). */

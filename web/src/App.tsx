@@ -26,6 +26,7 @@ import { Mine } from "./pages/Mine.tsx";
 import { New } from "./pages/New.tsx";
 import { Status } from "./pages/Status.tsx";
 import { tg } from "./telegram.ts";
+import { AskPanel } from "./ui/AskPanel.tsx";
 import { cx, ErrorText, LinkButton, Spark } from "./ui/kit.tsx";
 import { VoxelWord } from "./ui/VoxelWord.tsx";
 import { WalletMenu } from "./ui/WalletMenu.tsx";
@@ -242,6 +243,8 @@ export function App() {
           )}
         >
           {page}
+          {/* Outside the keyed page: the conversation survives moving between docs pages (cited links). */}
+          {path.startsWith("/docs") && <AskPanel />}
         </main>
 
         {!tg && <Footer />}
