@@ -20,12 +20,13 @@ export const FAUCET = "https://hub.arkiv.network/faucet";
 // the Mini App"): HMAC-SHA256 over every field except `hash`, sorted by key, as key=value lines,
 // keyed by HMAC-SHA256(key "WebAppData", botToken). Only someone holding the bot token can sign it,
 // so a valid hash proves Telegram handed this user to our Mini App.
-// Returns the Telegram user id, or null for anything forged, stale or malformed.
+// Returns the Telegram user id; "stale" for a genuine one over an hour old (the Mini App was left
+// open), so the user can be told to reopen it; null for anything forged or malformed.
 export function verifyInitData(
   initData: string,
   botToken: string,
   nowSec: number,
-): number | null {
+): number | "stale" | null {
   const params = new URLSearchParams(initData);
   const hash = params.get("hash");
   if (!hash || !/^[0-9a-f]{64}$/.test(hash)) return null;
@@ -41,12 +42,9 @@ export function verifyInitData(
   if (!timingSafeEqual(expected, Buffer.from(hash, "hex"))) return null;
 
   const authDate = Number(params.get("auth_date"));
-  if (
-    !Number.isInteger(authDate) ||
-    nowSec - authDate > MAX_AGE_SEC ||
-    authDate - nowSec > MAX_SKEW_SEC
-  )
+  if (!Number.isInteger(authDate) || authDate - nowSec > MAX_SKEW_SEC)
     return null;
+  if (nowSec - authDate > MAX_AGE_SEC) return "stale";
   try {
     const id: unknown = JSON.parse(params.get("user") ?? "").id;
     return Number.isSafeInteger(id) && (id as number) > 0
@@ -65,8 +63,10 @@ export function createSponsor(o: {
   send: (to: Hex, value: bigint) => Promise<Hex>; // broadcasts one transfer, returns its hash
   botToken: string;
   now?: () => number; // ms, like Date.now; tests pass a fake clock
+  confirmMs?: number; // how long a transfer holds the queue; tests shorten it
 }) {
   const now = o.now ?? Date.now;
+  const confirmMs = o.confirmMs ?? CONFIRM_TIMEOUT_MS;
   let chain: Promise<unknown> = Promise.resolve();
 
   // One transfer at a time, each mined (or timed out) before the next starts: viem reads the
@@ -75,10 +75,18 @@ export function createSponsor(o: {
   const transfer = (to: Hex) => {
     const sent = chain.then(() => o.send(to, SPONSOR_AMOUNT));
     chain = sent.then(
-      (hash) =>
-        o.pub
-          .waitForTransactionReceipt({ hash, timeout: CONFIRM_TIMEOUT_MS })
-          .catch((e) => console.error(`[sponsor] ${hash} not confirmed:`, e)),
+      async (hash) => {
+        const start = Date.now();
+        await o.pub
+          .waitForTransactionReceipt({ hash, timeout: confirmMs })
+          .catch(async (e) => {
+            console.error(`[sponsor] ${hash} not confirmed:`, e);
+            // An RPC error (retryCount 0: one 429) ends the wait at once, with the transfer maybe
+            // still unmined: hold the queue for the rest of the window anyway (audit RL-5).
+            const left = confirmMs - (Date.now() - start);
+            await new Promise((r) => setTimeout(r, left));
+          });
+      },
       () => {}, // a failed send is the caller's to report; the next one may go ahead
     );
     return sent;
@@ -87,6 +95,11 @@ export function createSponsor(o: {
   const fail = (status: number, error: string): SponsorReply => ({
     status,
     body: { error },
+  });
+  // For the refusals waiting won't fix: a transfer that never landed, or an empty sponsor wallet.
+  const faucet = (status: number, error: string): SponsorReply => ({
+    status,
+    body: { error: `${error} Need GLM? Use the faucet.`, faucet: FAUCET },
   });
   const capped = () => o.db.sponsoredLast24h() + SPONSOR_AMOUNT > DAILY_CAP;
   const usedUp: SponsorReply = {
@@ -103,6 +116,11 @@ export function createSponsor(o: {
     if (typeof address !== "string" || typeof initData !== "string")
       return fail(400, "Send { address, initData }.");
     const user = verifyInitData(initData, o.botToken, Math.floor(now() / 1000));
+    if (user === "stale")
+      return fail(
+        401,
+        "This Telegram session is over an hour old. Close Prometheus and open it again from the bot.",
+      );
     if (user === null)
       return fail(401, "Open this from the Prometheus Telegram bot.");
     if (!isAddress(address)) return fail(400, "That isn't a valid address.");
@@ -110,7 +128,7 @@ export function createSponsor(o: {
     // Refusals that need no RPC come first, so a sponsored user or a spent cap can't make every
     // request cost a balance lookup on the key delivery shares (audit RL-4).
     if (o.db.isSponsored(user, address))
-      return fail(409, "You've already been sponsored.");
+      return faucet(409, "You've already been sponsored.");
     if (capped()) return usedUp;
     if ((await o.pub.getBalance({ address })) >= FUNDED)
       return fail(409, "This wallet already has GLM.");
@@ -119,7 +137,7 @@ export function createSponsor(o: {
     if (capped()) return usedUp;
     // The row is written BEFORE any GLM moves: its keys block a second grant (LLD §6.1).
     if (!o.db.claimSponsor(user, address, SPONSOR_AMOUNT))
-      return fail(409, "You've already been sponsored.");
+      return faucet(409, "You've already been sponsored.");
 
     let tx: Hex;
     try {
@@ -130,7 +148,7 @@ export function createSponsor(o: {
       // daily cap. Check by nonce before releasing if that ever matters.
       o.db.releaseSponsor(user);
       console.error("[sponsor] send failed:", e);
-      return fail(503, "Couldn't send GLM right now. Please try again.");
+      return faucet(503, "Couldn't send GLM right now. Try again later.");
     }
     o.db.recordSponsorTx(user, tx);
     return { status: 200, body: { tx } };
