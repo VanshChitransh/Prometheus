@@ -17,6 +17,7 @@ import {
   useState,
   type ComponentType,
 } from "react";
+import { Analytics } from "@vercel/analytics/react";
 import { Toaster } from "sonner";
 import { Blog, BlogPost } from "./pages/Blog.tsx";
 import { Coverage } from "./pages/Coverage.tsx";
@@ -126,12 +127,15 @@ export function App() {
 
   let page = <NotFound />;
   let layout: Layout = "app";
+  // What Vercel Analytics records. Only matched routes: an unknown hash can be Telegram's launch data.
+  let route = "/not-found";
   for (const [re, P, l] of ROUTES) {
     const m = re.exec(path);
     // key: a fresh page per route, so a slow load from the last page can't land on this one.
     if (m) {
       page = <P key={path} params={m.slice(1)} />;
       layout = l;
+      route = path.replace(/0x[0-9a-fA-F]{64}/g, "[key]");
       break;
     }
   }
@@ -248,6 +252,7 @@ export function App() {
         {app && <TabBar current={current} />}
       </div>
       <Toaster theme={theme} position="top-center" offset={72} />
+      <Analytics route={route} path={route} />
     </Ctx.Provider>
   );
 }
