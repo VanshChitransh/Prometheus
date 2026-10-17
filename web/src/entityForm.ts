@@ -146,12 +146,15 @@ export const toSearch = (conds: readonly Condition[]) => ({
           [op]: [
             name,
             {
+              // A str is matched exactly, spaces included. An empty i32 stays "", which i32() rejects.
               [type]:
-                type === "i32"
-                  ? Number(value)
-                  : type === "bool"
-                    ? ({ true: true, false: false }[value] ?? value) // garbage: parseSearch rejects it
-                    : value.trim(),
+                type === "str"
+                  ? value
+                  : type === "i32"
+                    ? value.trim() && Number(value)
+                    : type === "bool"
+                      ? ({ true: true, false: false }[value] ?? value) // garbage: parseSearch rejects it
+                      : value.trim(),
             },
           ],
         },

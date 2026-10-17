@@ -161,6 +161,13 @@ test("bad searches fail with the worker's reason", () => {
   assert.equal(decode({ trigger: "new_match" }).ok, false); // nothing ticked yet
 });
 
+test("values reach the search as typed: a str keeps its spaces, an empty i32 is rejected", () => {
+  const geo = toSearch([{ name: "geo", type: "str", op: "eq", value: " IN " }]);
+  assert.equal(parseSearch(geo).toString(), "geo = str(' IN ')");
+  const empty = toSearch([{ name: "n", type: "i32", op: "eq", value: "" }]);
+  assert.equal(decode({ trigger: "new_match", search: empty }).ok, false);
+});
+
 test("renewChoices offers only terms that move the expiry later", () => {
   const day = 43_200n;
   assert.deepEqual(renewChoices(1_000n + 6n * day, 1_000n), [7, 30]);
