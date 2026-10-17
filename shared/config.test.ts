@@ -29,6 +29,15 @@ test("relay dbPath defaults to state/ and can be overridden", () => {
   assert.equal(c.dbPath, "/data/relay.db");
 });
 
+test("relay port defaults to 8080, takes PORT, and rejects a bad one", () => {
+  assert.equal(loadConfig("relay", relay).port, 8080);
+  assert.equal(loadConfig("relay", { ...relay, PORT: "3000" }).port, 3000);
+  assert.throws(
+    () => loadConfig("relay", { ...relay, PORT: "70000" }),
+    /PORT must be/,
+  );
+});
+
 test("valid relay env needs no worker variables", () => {
   const c = loadConfig("relay", relay);
   assert.deepEqual(c.trustedWorkers, [

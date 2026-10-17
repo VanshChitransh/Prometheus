@@ -17,6 +17,7 @@ export type RelayConfig = Base & {
   sponsorKey: Hex;
   telegramToken: string;
   dbPath: string;
+  port: number;
 };
 type Configs = { worker: WorkerConfig; relay: RelayConfig };
 export type Role = keyof Configs;
@@ -73,6 +74,14 @@ export function loadConfig<R extends Role>(
       delayBlocks: Number(delay),
     };
   } else {
+    // Optional: hosts like Railway set PORT; checked only when present.
+    const port = env.PORT?.trim()
+      ? read(
+          "PORT",
+          (v) => /^\d+$/.test(v) && Number(v) <= 65_535,
+          "a port number (0–65535)",
+        )
+      : "8080";
     config = {
       ...base,
       sponsorKey: read(
@@ -87,6 +96,7 @@ export function loadConfig<R extends Role>(
       )!,
       // Optional: on the host, point it at a mounted volume (Q-7) so follows survive a redeploy.
       dbPath: env.RELAY_DB_PATH?.trim() || "state/relay.db",
+      port: Number(port),
     };
   }
 
