@@ -1,5 +1,6 @@
 // Entry: the wallet bar in the header, and the page router below it.
 import { newPage } from "./pages/new.ts";
+import { statusPage } from "./pages/status.ts";
 import { errorLine, startRouter } from "./router.ts";
 import {
   balance,
@@ -81,4 +82,5 @@ startRouter(app, [
     },
   ],
   [/^\/new$/, newPage],
+  [/^\/s\/(0x[0-9a-fA-F]{64})$/, statusPage],
 ]);
