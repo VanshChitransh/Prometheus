@@ -14,7 +14,7 @@ import { PROJECT, type Event } from "../shared/schema.ts";
 import type { Sub } from "../shared/subscription.ts";
 import { triggerId } from "../shared/triggerId.ts";
 import type { Keeper } from "./keeper.ts";
-import { inBatches } from "../shared/limit.ts";
+import { createLimiter, inBatches } from "../shared/limit.ts";
 import type { Writer } from "./writer.ts";
 
 const FLUSH_AT = 10; // receipts
@@ -24,6 +24,9 @@ const FLUSH_EVERY = 5n; // blocks
 const BATCH_MAX = 50;
 const BACKOFF_MIN_MS = 1_000;
 const BACKOFF_MAX_MS = 30_000;
+// A keep the keeper deferred (low funds, spent budget) waits this long before it's offered again:
+// each offer costs 3 free RPCs, and the monitor offers every due keep on every head (WK-5).
+const RETRY_BLOCKS = 10n;
 const RECHECK_MIN_MS = 10_000; // after a thrown send: time for a tx that did go out to be indexed
 const LIFETIME = ExpirationTime.fromDays(30);
 // Keep outcomes aren't alerts, so they never use a max_per_day slot (see fire()).
@@ -71,6 +74,10 @@ export class Receipts {
   // it ever reaches millions. Rebuilt from receipts on restart (T2.8).
   readonly #fired = new Set<Hex>(); // done here or found on chain (fast path; the truth is on Arkiv)
   readonly #inFlight = new Set<Hex>(); // claimed, not finished
+  readonly #deferred = new Map<Hex, bigint>(); // keep triggers to skip until this head (WK-5)
+  // fire() runs outside the dispatch limiter: a burst (a restart's first head, a replayed block of
+  // patches) sent every "already done?" count at once (WK-7).
+  readonly #limit = createLimiter(8);
   readonly #dayCount = new Map<Hex, { day: string; n: number }>();
   #pending: Receipt[] = [];
   #sending: Receipt[] = [];
@@ -127,6 +134,7 @@ export class Receipts {
     // max_per_day caps alerts; a keep isn't an alert, and skipping one would let the target lapse.
     // Keeps have their own global budget in the keeper.
     if (this.#fired.has(id)) return "done";
+    if ((this.#deferred.get(id) ?? -1n) > this.#head) return "skipped";
     if (this.#inFlight.has(id) || (event !== "keep" && this.#overCap(sub)))
       return "skipped";
     // Claim before any await, or every call during B's 15-block wait would pass the checks above.
@@ -172,7 +180,9 @@ export class Receipts {
             targetOwner: out.seen?.owner,
           };
         if (out?.retry) {
-          if (receipt)
+          this.#deferred.set(id, this.#head + RETRY_BLOCKS);
+          // Said once per trigger; after a restart the keeper forgot it did (WK-8).
+          if (receipt && !(await this.#landed(out.id ?? id)))
             await this.#queue({
               id: out.id ?? id,
               subscription: sub.key,
@@ -195,6 +205,7 @@ export class Receipts {
         });
       // Only on success: marking it in `finally` would make one transient RPC error lose the alert.
       this.#fired.add(id);
+      this.#deferred.delete(id);
       return "done";
     } catch (e) {
       console.error(`[receipts] ${event} for ${sub.key} failed:`, e);
@@ -357,7 +368,7 @@ export class Receipts {
   // receipt from any wallet would make both workers skip the real alert.
   async #landed(id: Hex) {
     const q = `project = str('${PROJECT}') AND kind = str('receipt') AND trigger_id = bytes32(${id}) AND ${this.#trusted}`;
-    return (await freeCount(this.#pub, q)) > 0;
+    return (await this.#limit(() => freeCount(this.#pub, q))) > 0;
   }
 
   // Restores today's count after a restart (T2.8), from the receipts already on chain. Adds to what

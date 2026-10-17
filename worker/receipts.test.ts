@@ -331,8 +331,63 @@ test("a keep outcome with retry writes its receipt but stays unfired", async () 
   r.onHead(1_000n);
   await r.fire(SUB, TARGET, "keep", 970n);
   assert.equal(r.queued, 1); // the low-funds notice
+  r.onHead(1_010n); // a deferred keep waits 10 blocks (WK-5)
   await r.fire(SUB, TARGET, "keep", 970n); // offered again, now funded
   assert.equal(calls, 2);
+});
+
+// WK-5: past the budget or below the reserve, the keeper answers "retry", and every head used to
+// re-offer every due keep at 3 RPCs each (the count, a read, a balance), forever.
+test("a keep the keeper defers is offered again every 10 blocks, not every head (WK-5)", async () => {
+  let calls = 0;
+  const { f, r } = await fake(0, {
+    keep: async () => (calls++, { retry: true }),
+  });
+  for (let h = 1_000n; h < 1_020n; h++) {
+    r.onHead(h);
+    await r.fire(SUB, TARGET, "keep", 970n);
+  }
+  assert.equal(calls, 2); // heads 1,000 and 1,010
+  assert.equal(f.counts, 2); // and no "already done?" count in between
+});
+
+// WK-7: fire() runs outside the dispatch limiter, so a burst of triggers counted all at once.
+test("the 'already done?' counts run at most 8 at a time (WK-7)", async () => {
+  let active = 0;
+  let peak = 0;
+  const r = new Receipts({
+    writer: {} as never,
+    pub: {
+      request: async () => {
+        peak = Math.max(peak, ++active);
+        await new Promise((res) => setTimeout(res, 2));
+        active--;
+        return 1; // the other worker already wrote it
+      },
+    } as never,
+    delayBlocks: 0,
+    file: join(await mkdtemp(join(tmpdir(), "receipts-")), "pending.json"),
+    trustedWorkers: [TRUSTED],
+  });
+  r.onHead(1_000n);
+  const sub = { ...SUB, maxPerDay: 100 };
+  await Promise.all(
+    Array.from({ length: 40 }, (_, i) =>
+      r.fire(sub, TARGET, "warned", BigInt(i + 1)),
+    ),
+  );
+  assert.equal(peak, 8);
+});
+
+// WK-8: the keeper forgets on restart that it already said "low funds" for this trigger.
+test("a low-funds notice already on chain isn't queued again after a restart (WK-8)", async () => {
+  const { f, r } = await fake(0, {
+    keep: async () => ({ event: "keeper_low_funds", retry: true, id: hex(77) }),
+  });
+  f.landed.add(hex(77)); // written before the restart
+  r.onHead(1_000n);
+  assert.equal(await r.fire(SUB, TARGET, "keep", 970n), "failed"); // still not kept
+  assert.equal(r.queued, 0);
 });
 
 test("100 concurrent fires on a sub capped at 20 queue exactly 20 (H4)", async () => {
