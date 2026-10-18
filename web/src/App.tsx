@@ -31,13 +31,17 @@ import { AskPanel } from "./ui/AskPanel.tsx";
 import { cx, ErrorText, LinkButton, Spark } from "./ui/kit.tsx";
 import { VoxelWord } from "./ui/VoxelWord.tsx";
 import { WalletMenu } from "./ui/WalletMenu.tsx";
-import { wallet, type Wallet } from "./wallet.ts";
+import { disconnect, wallet, type Wallet } from "./wallet.ts";
 
 type WalletCtx = {
   wallet?: Wallet;
   connect: (get: () => Wallet | Promise<Wallet>) => Promise<boolean>;
+  disconnect: () => void;
 };
-const Ctx = createContext<WalletCtx>({ connect: async () => false });
+const Ctx = createContext<WalletCtx>({
+  connect: async () => false,
+  disconnect: () => {},
+});
 export const useWallet = () => useContext(Ctx);
 
 type Layout = "full" | "wide" | "app";
@@ -154,7 +158,16 @@ export function App() {
   };
 
   return (
-    <Ctx.Provider value={{ wallet: w, connect }}>
+    <Ctx.Provider
+      value={{
+        wallet: w,
+        connect,
+        disconnect: () => {
+          disconnect();
+          setW(undefined);
+        },
+      }}
+    >
       <div className="flex min-h-dvh flex-col">
         <header
           className={cx(

@@ -6,10 +6,11 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
 import "./index.css";
 import { boot } from "./telegram.ts";
-import { storedKey, useLocalKey } from "./wallet.ts";
+import { disconnected, storedKey, useLocalKey } from "./wallet.ts";
 
 boot();
-if (await storedKey().catch(() => null)) await useLocalKey().catch(() => {});
+if (!disconnected() && (await storedKey().catch(() => null)))
+  await useLocalKey().catch(() => {});
 
 createRoot(document.querySelector("#app")!).render(
   <StrictMode>
