@@ -41,10 +41,11 @@ Answer the reader's question from the docs below, which are your only source.
 
 // The free models we ask, in order: OpenRouter tries the next when one is down or rotated out (they are,
 // without notice). Each holds the ~40k-token docs with room to spare. Override with ASK_MODELS.
+// Not thinkingmachines/inkling:free: OpenRouter serves it only to listed agent apps.
 export const FREE_MODELS = [
-  "google/gemma-4-31b-it:free",
-  "nvidia/nemotron-3-super-120b-a12b:free",
-  "thinkingmachines/inkling:free",
+  "nvidia/nemotron-3-super-120b-a12b:free", // answered best in a live test (18 Oct): ~3 s to first word
+  "google/gemma-4-31b-it:free", // often rate-limited upstream (Google's shared free pool)
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
 ];
 
 // The real answerer: OpenRouter's OpenAI-style chat API, streamed. Plain fetch, no SDK. Free models give
@@ -67,6 +68,8 @@ export function openRouterAnswer(
         stream: true,
         max_tokens: 2_000,
         temperature: 0.2,
+        // Docs Q&A needs reading, not thinking: reasoning models otherwise spend the budget before answering.
+        reasoning: { enabled: false },
         messages: [
           { role: "system", content: `${RULES}\n\n${docs}` },
           ...turns,
