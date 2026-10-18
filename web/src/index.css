@@ -222,9 +222,15 @@
     border-radius: 999px;
     background: var(--tone, var(--ink-3));
   }
-  .prose .alert-tag.ok { --tone: var(--ok); }
-  .prose .alert-tag.warn { --tone: var(--warn); }
-  .prose .alert-tag.bad { --tone: var(--bad); }
+  .prose .alert-tag.ok {
+    --tone: var(--ok);
+  }
+  .prose .alert-tag.warn {
+    --tone: var(--warn);
+  }
+  .prose .alert-tag.bad {
+    --tone: var(--bad);
+  }
   .prose ul {
     list-style: disc;
     padding-left: 1.25em;
