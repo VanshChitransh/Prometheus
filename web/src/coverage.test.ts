@@ -4,6 +4,7 @@ import type { Hex } from "viem";
 import type { Receipt } from "../../shared/receipt.ts";
 import type { Sub } from "../../shared/subscription.ts";
 import {
+  bySubscription,
   expiredGaps,
   firstLate,
   groupByTrigger,
@@ -99,6 +100,24 @@ test("per-worker stats: deliveries, sole deliveries, lateness, low funds", () =>
     ],
   );
   assert.equal(workers[0].lowFunds, true);
+});
+
+test("activity groups by subscription, newest first, counting each event", () => {
+  const other = id(2001) as Hex;
+  const rows = groupByTrigger([
+    receipt(A, 10, 0, { event: "kept" }),
+    receipt(A, 20, 0, { event: "warned", subscription: other }),
+    receipt(A, 30, 0, { event: "kept" }),
+    receipt(B, 30, 15, { event: "kept" }), // same trigger: one delivery, not two
+  ]);
+  const subs = bySubscription(rows);
+  assert.deepEqual(
+    subs.map((s) => [s.subscription, s.latest.triggerBlock, [...s.counts]]),
+    [
+      [id(2000), 30n, [["kept", 2]]],
+      [other, 20n, [["warned", 1]]],
+    ],
+  );
 });
 
 test("a gap is a gone target with no expired receipt", () => {
