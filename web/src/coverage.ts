@@ -79,6 +79,28 @@ export function typicalLate(rows: readonly TriggerRow[]) {
   return lates[Math.floor((lates.length - 1) / 2)];
 }
 
+// One entry per subscription, most recently active first (rows come newest first): the client
+// reads "what happened to each thing I watch", not a raw event log.
+export type SubActivity = {
+  subscription: Hex;
+  latest: TriggerRow;
+  counts: Map<Event, number>;
+};
+export function bySubscription(rows: readonly TriggerRow[]) {
+  const subs = new Map<string, SubActivity>();
+  for (const r of rows) {
+    const k = r.subscription.toLowerCase();
+    let s = subs.get(k);
+    if (!s)
+      subs.set(
+        k,
+        (s = { subscription: r.subscription, latest: r, counts: new Map() }),
+      );
+    s.counts.set(r.event, (s.counts.get(r.event) ?? 0) + 1);
+  }
+  return [...subs.values()];
+}
+
 // Per-worker numbers for the operator section.
 export function summarize(
   receipts: readonly Receipt[],

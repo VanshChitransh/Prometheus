@@ -12,13 +12,15 @@ import {
   trustedFilter,
 } from "../../../shared/arkiv.ts";
 import { inBatches } from "../../../shared/limit.ts";
-import { BLOCKS_PER_DAY, PROJECT } from "../../../shared/schema.ts";
+import { BLOCKS_PER_DAY, PROJECT, type Event } from "../../../shared/schema.ts";
 import { decodeSubscription } from "../../../shared/subscription.ts";
 import {
+  bySubscription,
   expiredGaps,
   groupByTrigger,
   summarize,
   typicalLate,
+  type SubActivity,
   type TriggerRow,
   type WorkerStat,
 } from "../coverage.ts";
@@ -122,7 +124,7 @@ export function Coverage() {
     <div className="space-y-12">
       <PageHead
         title="Activity"
-        sub="Every alert and renewal from the last 24 hours, read straight from Arkiv. Each one links to its transaction, so you can check it yourself."
+        sub="What Prometheus did for every watched record in the last 24 hours. Each one links to its transaction on Arkiv, so you can check it yourself."
         right={
           d && (
             <Badge
@@ -194,33 +196,63 @@ export function Coverage() {
   );
 }
 
-// The headline numbers as a sentence: the type is the display (frontend-design: not stat tiles).
+// What the workers did, in words: [events, verb, noun] → "sent 14 expiry warnings".
+const DID: [Event[], string, string, string][] = [
+  [["kept"], "kept records alive", "time", "times"],
+  [["warned"], "sent", "expiry warning", "expiry warnings"],
+  [["expired"], "reported", "expiry", "expiries"],
+  [["patched", "owner_changed", "deleted"], "caught", "change", "changes"],
+  [["matched"], "found", "new match", "new matches"],
+  [["keep_skipped", "keep_failed"], "skipped", "renewal", "renewals"],
+];
+
+// The headline as a sentence: the type is the display (frontend-design: not stat tiles).
 function Summary({ rows, missed }: { rows: TriggerRow[]; missed?: number }) {
   const b = (v: string | number) => (
     <span className="tnum font-semibold text-ink">{v}</span>
   );
+  const parts = DID.flatMap(([events, verb, one, many]) => {
+    const n = rows.filter((r) => events.includes(r.event)).length;
+    if (!n) return [];
+    return [
+      <>
+        {verb} {b(num(n))} {n === 1 ? one : many}
+      </>,
+    ];
+  });
   const late = typicalLate(rows);
   return (
-    <p className="max-w-[34ch] text-[26px] leading-[1.32] font-medium tracking-[-0.02em] text-ink-2 sm:text-[34px]">
-      {rows.length ? (
-        <>
-          {b(plural(rows.length, "event"))} in the last day
-          {late !== undefined && (
-            <>, delivered usually within {b(duration(late > 1n ? late : 1n))}</>
-          )}
-          .{" "}
-        </>
-      ) : (
-        "Nothing fired in the last day. "
+    <div>
+      <p className="max-w-[34ch] text-[26px] leading-[1.32] font-medium tracking-[-0.02em] text-ink-2 sm:text-[34px]">
+        {parts.length ? (
+          <>
+            In the last day we{" "}
+            {parts.map((p, i) => (
+              <span key={i}>
+                {i === 0 ? "" : i === parts.length - 1 ? " and " : ", "}
+                {p}
+              </span>
+            ))}
+            .{" "}
+          </>
+        ) : (
+          "Nothing needed doing in the last day. "
+        )}
+        {missed === undefined ? (
+          "…"
+        ) : missed ? (
+          <>{b(plural(missed, "alert"))} missed.</>
+        ) : (
+          <>{b("Nothing")} missed.</>
+        )}
+      </p>
+      {late !== undefined && (
+        <p className="mt-3 text-[15px] text-ink-2">
+          Each one usually lands within {duration(late > 1n ? late : 1n)} of the
+          change on chain.
+        </p>
       )}
-      {missed === undefined ? (
-        "…"
-      ) : missed ? (
-        <>{b(plural(missed, "alert"))} missed.</>
-      ) : (
-        <>{b("None")} missed.</>
-      )}
-    </p>
+    </div>
   );
 }
 
@@ -270,6 +302,13 @@ function WorkerRow({ w, i }: { w: WorkerStat; i: number }) {
   );
 }
 
+// "Kept alive ×15 · Warning sent", most frequent first.
+const countsText = (counts: Map<Event, number>) =>
+  [...counts]
+    .sort((x, y) => y[1] - x[1])
+    .map(([e, n]) => (n > 1 ? `${EVENT_TEXT[e]} ×${n}` : EVENT_TEXT[e]))
+    .join(" · ");
+
 function Feed({
   rows,
   head,
@@ -280,55 +319,85 @@ function Feed({
   labels: Map<string, string>;
 }) {
   const [all, setAll] = useState(false);
-  const shown = all ? rows : rows.slice(0, 10);
+  // A subscription with no live entity was cancelled or lapsed: nothing to open or name, so its
+  // events become one footnote instead of rows nobody can make sense of.
+  const subs = bySubscription(rows);
+  const live = subs.filter((s) => labels.has(s.subscription.toLowerCase()));
+  const ended = rows.filter(
+    (r) => !labels.has(r.subscription.toLowerCase()),
+  ).length;
+  const shown = all ? live : live.slice(0, 10);
   return (
     <Group
-      title={`Activity (${num(rows.length)})`}
+      title={`Watched records (${num(live.length)})`}
+      note={
+        ended > 0 &&
+        `Plus ${plural(ended, "event")} for subscriptions that have since ended.`
+      }
       right={
-        rows.length > 10 && (
+        live.length > 10 && (
           <Button
             variant="plain"
             size="sm"
             className="h-auto px-0"
             onClick={() => setAll(!all)}
           >
-            {all ? "Show fewer" : `Show all ${num(rows.length)}`}
+            {all ? "Show fewer" : `Show all ${num(live.length)}`}
           </Button>
         )
       }
     >
-      {!rows.length ? (
+      {!live.length ? (
         <Row>
           <span className="text-ink-2">Nothing in the last 24 hours.</span>
         </Row>
       ) : (
-        shown.map((r) => (
-          <Row key={r.triggerId} inset={60}>
-            <EventGlyph event={r.event} />
-            <div className="min-w-0 flex-1">
-              <div className="font-medium">{EVENT_TEXT[r.event]}</div>
-              <div className="tnum truncate text-[13px] text-ink-2">
-                <a href={`#/s/${r.subscription}`} className="hover:text-accent">
-                  {/* No live entity to name it: the subscription was cancelled or lapsed. */}
-                  {labels.get(r.subscription.toLowerCase()) ??
-                    "Ended subscription"}
-                </a>{" "}
-                · {ago(head - r.triggerBlock)}
-              </div>
-            </div>
-            <a
-              href={`${EXPLORER}/entity/${r.key}`}
-              target="_blank"
-              rel="noreferrer"
-              className="flex shrink-0 items-center gap-1 text-[13px] text-accent transition-opacity hover:opacity-70"
-            >
-              <span className="hidden sm:inline">View transaction</span>
-              <span className="sm:hidden">Proof</span>
-              <ExternalLink className="size-3" />
-            </a>
-          </Row>
+        shown.map((s) => (
+          <SubRow
+            key={s.subscription}
+            s={s}
+            head={head}
+            label={labels.get(s.subscription.toLowerCase())!}
+          />
         ))
       )}
     </Group>
+  );
+}
+
+function SubRow({
+  s,
+  head,
+  label,
+}: {
+  s: SubActivity;
+  head: bigint;
+  label: string;
+}) {
+  return (
+    <Row inset={60}>
+      <EventGlyph event={s.latest.event} />
+      <div className="min-w-0 flex-1">
+        <a
+          href={`#/s/${s.subscription}`}
+          className="block truncate font-medium hover:text-accent"
+        >
+          {label}
+        </a>
+        <div className="tnum truncate text-[13px] text-ink-2">
+          {countsText(s.counts)} · {ago(head - s.latest.triggerBlock)}
+        </div>
+      </div>
+      <a
+        href={`${EXPLORER}/entity/${s.latest.key}`}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`Latest transaction for ${label}`}
+        className="flex shrink-0 items-center gap-1 text-[13px] text-accent transition-opacity hover:opacity-70"
+      >
+        Proof
+        <ExternalLink className="size-3" />
+      </a>
+    </Row>
   );
 }
