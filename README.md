@@ -17,7 +17,7 @@
 ![Arkiv SDK](https://img.shields.io/badge/@arkiv--network/sdk-0.8.1-111)
 ![Network](https://img.shields.io/badge/network-Tiramisu%20testnet-8b5cf6)
 
-[Live app](https://prometheus-arkiv.vercel.app) · [Docs](https://prometheus-arkiv.vercel.app/docs) · [SDK](sdk/README.md) · [Telegram bot](https://t.me/prometheus_arkiv_bot) · [Activity](https://prometheus-arkiv.vercel.app/coverage)
+[Live app](https://prometheus-arkiv.vercel.app) · [Docs](https://prometheus-arkiv.vercel.app/docs) · [SDK](sdk/README.md) · [Telegram bot](https://t.me/prometheus_arkiv_bot) · [Activity](https://prometheus-arkiv.vercel.app/activity)
 
 </div>
 
@@ -705,7 +705,7 @@ One hash-routed React bundle is **both** the website and the app, and the **same
 | `/new`         | Watch            | The subscription form with a visual search builder; validates live with the workers' decoder                   |
 | `/s/<key>`     | Status           | One subscription and its receipts, read straight from Arkiv (works even if relay and workers are down)         |
 | `/mine`        | My subscriptions | Your wallet's subscriptions: renew, cancel, see "served / not served"                                          |
-| `/coverage`    | Activity         | Last 24 h of trusted receipts grouped by trigger: normal / covered by B / delivered twice, worker health, gaps |
+| `/activity`    | Activity         | Last 24 h of trusted receipts grouped by trigger: normal / covered by B / delivered twice, worker health, gaps |
 | `/docs/<slug>` | Docs             | Rendered from [`web/docs/*.md`](web/docs), with search and an **Ask AI** panel                                 |
 
 **Wallets:** a browser-generated key, MetaMask, or (inside Telegram) a key held in Telegram's secure storage. The site never sees an Arkiv access key: [`vite.config.ts`](vite.config.ts) injects an explicit allow-list of build-time values only.

@@ -78,7 +78,7 @@ Because of the 30-minute lifetime, a worker that just stopped can still show as 
 
 ## What the Coverage page shows
 
-Open `<site>/coverage`. Your browser reads the last 24 hours (43,200 blocks) of trusted receipts from Arkiv and groups them by `trigger_id`. Every number on the page comes from those receipts, so you can check it yourself.
+Open `<site>/activity`. Your browser reads the last 24 hours (43,200 blocks) of trusted receipts from Arkiv and groups them by `trigger_id`. Every number on the page comes from those receipts, so you can check it yourself.
 
 Each trigger gets one status:
 

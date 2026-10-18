@@ -1,4 +1,4 @@
-// /coverage, "Activity" (T4.6, LLD §7): what fired in the last day and the on-chain proof of each,
+// /activity, "Activity" (T4.6, LLD §7): what fired in the last day and the on-chain proof of each,
 // read straight from Arkiv. Clients see one feed; which worker delivered it is folded away for the
 // operator. Each section loads on its own, so a rate-limited query blanks only its section.
 import { u64 } from "@arkiv-network/sdk/attr";
@@ -25,7 +25,6 @@ import {
   type WorkerStat,
 } from "../coverage.ts";
 import {
-  EVENT_TEXT,
   EXPLORER,
   fetchEntities,
   fetchReceipts,
@@ -84,6 +83,10 @@ async function expiredChecks() {
   });
 }
 
+// The seed's wallet (arkiv/schema.md): its subscriptions watch short-lived test records, so they're
+// tagged and sorted below real ones.
+const DEMO_SUBSCRIBER = "0xa286a6fc7bf81ce5a18cfb52cf9c2040724ac8ee";
+
 async function load() {
   const head = await reader.getBlockNumber();
   const [receipts, live] = await Promise.all([
@@ -94,15 +97,18 @@ async function load() {
   // Free reads, one per subscription in the feed: a name reads better than a key.
   const keys = [...new Set(rows.map((r) => r.subscription.toLowerCase()))];
   const labels = new Map<string, string>();
+  const demo = new Set<string>();
   await inBatches(keys, async (k) => {
     const e = await rawGetEntity(reader, k as Hex);
     const d = e && decodeSubscription(e);
     if (d?.ok) labels.set(k, d.sub.label);
+    if (d?.ok && d.sub.creator.toLowerCase() === DEMO_SUBSCRIBER) demo.add(k);
   });
   return {
     head,
     rows,
     labels,
+    demo,
     workers: summarize(receipts, rows, TRUSTED, live),
   };
 }
@@ -175,7 +181,9 @@ export function Coverage() {
         )
       )}
 
-      {d && <Feed rows={d.rows} head={d.head} labels={d.labels} />}
+      {d && (
+        <Feed rows={d.rows} head={d.head} labels={d.labels} demo={d.demo} />
+      )}
 
       {d && (
         <details className="group">
@@ -303,26 +311,40 @@ function WorkerRow({ w, i }: { w: WorkerStat; i: number }) {
   );
 }
 
-// "Kept alive ×15 · Warning sent", most frequent first.
-const countsText = (counts: Map<Event, number>) =>
-  [...counts]
-    .sort((x, y) => y[1] - x[1])
-    .map(([e, n]) => (n > 1 ? `${EVENT_TEXT[e]} ×${n}` : EVENT_TEXT[e]))
-    .join(" · ");
+// What happened to the watched record, in the words of the person who asked. The label already
+// says what the record is ("Door Ledger: gate ABS deposit halt closed").
+const SAY: Record<Event, string> = {
+  warned: "Expires soon: renew it if you need it",
+  expired: "Expired: nobody renewed it",
+  patched: "Its contents changed",
+  owner_changed: "It has a new owner",
+  deleted: "Its owner removed it",
+  matched: "A new record matched",
+  kept: "We renewed it for you",
+  keep_skipped: "We left it alone on purpose",
+  keep_failed: "Renewal failed: renew it yourself",
+  keeper_low_funds: "A worker is low on funds",
+};
 
 function Feed({
   rows,
   head,
   labels,
+  demo,
 }: {
   rows: TriggerRow[];
   head: bigint;
   labels: Map<string, string>;
+  demo: Set<string>;
 }) {
   const [all, setAll] = useState(false);
+  const isDemo = (s: SubActivity) => demo.has(s.subscription.toLowerCase());
   // A subscription with no live entity was cancelled or lapsed: nothing to open or name, so its
-  // events become one footnote instead of rows nobody can make sense of.
-  const subs = bySubscription(rows);
+  // events become one footnote instead of rows nobody can make sense of. Real records first; the
+  // sort is stable, so each half stays newest first.
+  const subs = bySubscription(rows).sort(
+    (a, b) => Number(isDemo(a)) - Number(isDemo(b)),
+  );
   const live = subs.filter((s) => labels.has(s.subscription.toLowerCase()));
   const ended = rows.filter(
     (r) => !labels.has(r.subscription.toLowerCase()),
@@ -359,6 +381,7 @@ function Feed({
             s={s}
             head={head}
             label={labels.get(s.subscription.toLowerCase())!}
+            demo={isDemo(s)}
           />
         ))
       )}
@@ -370,23 +393,30 @@ function SubRow({
   s,
   head,
   label,
+  demo,
 }: {
   s: SubActivity;
   head: bigint;
   label: string;
+  demo: boolean;
 }) {
+  const n = [...s.counts.values()].reduce((a, b) => a + b, 0);
   return (
     <Row inset={60}>
       <EventGlyph event={s.latest.event} />
       <div className="min-w-0 flex-1">
-        <a
-          href={`/s/${s.subscription}`}
-          className="block truncate font-medium hover:text-accent"
-        >
-          {label}
-        </a>
+        <div className="flex h-6 min-w-0 items-center gap-2">
+          <a
+            href={`/s/${s.subscription}`}
+            className="truncate font-medium hover:text-accent"
+          >
+            {label}
+          </a>
+          {demo && <Badge className="h-5 px-2 text-[11px]">Demo</Badge>}
+        </div>
         <div className="tnum truncate text-[13px] text-ink-2">
-          {countsText(s.counts)} · {ago(head - s.latest.triggerBlock)}
+          {SAY[s.latest.event]} · {ago(head - s.latest.triggerBlock)}
+          {n > 1 && ` · ${num(n)} times in the last day`}
         </div>
       </div>
       <a

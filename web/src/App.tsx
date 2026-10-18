@@ -54,7 +54,7 @@ const ROUTES: [RegExp, ComponentType<{ params: string[] }>, Layout][] = [
     "app",
   ],
   [/^\/s\/(0x[0-9a-fA-F]{64})$/, Status, "app"],
-  [/^\/coverage$/, Coverage, "app"],
+  [/^\/activity$/, Coverage, "app"],
   [/^\/mine$/, Mine, "app"],
 ];
 
@@ -64,16 +64,20 @@ const NAV: [string, string][] = [
   ["/new", "Watch"],
   ["/docs", "Docs"],
   ["/docs/sdk", "SDK"],
-  ["/coverage", "Activity"],
+  ["/activity", "Activity"],
 ];
 const APP_NAV: [string, string, LucideIcon][] = [
   ["/", "Home", House],
   ["/new", "New", PlusCircle],
   ["/mine", "Subscriptions", ListChecks],
-  ["/coverage", "Activity", Activity],
+  ["/activity", "Activity", Activity],
 ];
 
-const currentPath = () => location.pathname.replace(/(.)\/$/, "$1");
+// /coverage was the old name: links already out there (README, DMs, submissions) still land here.
+const currentPath = () =>
+  location.pathname
+    .replace(/(.)\/$/, "$1")
+    .replace(/^\/coverage$/, "/activity");
 
 // Client-side navigation: the URL changes without a reload, App re-renders on popstate.
 export function navigate(to: string) {
@@ -304,7 +308,7 @@ export function App() {
 const FOOTER: [string, string][] = [
   ["/docs", "Docs"],
   ["/docs/sdk", "SDK"],
-  ["/coverage", "Activity"],
+  ["/activity", "Activity"],
   ["/docs/run-a-worker", "Run a worker"],
   ["https://github.com/VanshChitransh/Prometheus", "GitHub"],
 ];

@@ -1,4 +1,4 @@
-// Activity maths for /coverage (T4.6): pure, no DOM, no network.
+// Activity maths for /activity (T4.6): pure, no DOM, no network.
 // Worker A fires; B waits delay_blocks and skips what A already did. Clients see one row per
 // trigger whoever delivered it; the per-worker split is only for the operator section.
 // Real gaps are triggers with no receipt at all.

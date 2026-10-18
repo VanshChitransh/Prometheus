@@ -1,5 +1,5 @@
 // Trusted receipts and our entities, read straight from Arkiv (no backend). Used by /s, /mine and
-// /coverage; ui/Receipts.tsx draws them.
+// /activity; ui/Receipts.tsx draws them.
 import { addr } from "@arkiv-network/sdk/attr";
 import { eq, MAX_LIMIT, or, type Expression } from "@arkiv-network/sdk/query";
 import { getAddress } from "viem";

@@ -14,7 +14,7 @@ test("launch: Telegram's own hash is dropped, a startapp key opens its status pa
     launchPath("/", "#tgWebAppData=query_id%3D1&tgWebAppVersion=9.1"),
     "/",
   );
-  assert.equal(launchPath("/coverage", ""), "/coverage");
+  assert.equal(launchPath("/activity", ""), "/activity");
   assert.equal(launchPath("/docs/sdk", "#install"), "/docs/sdk#install");
   assert.equal(launchPath("/", "#tgWebAppData=x", encodeKey(KEY)), `/s/${KEY}`);
   assert.equal(launchPath("/", "#tgWebAppData=x", "not-a-key"), "/");
@@ -22,7 +22,7 @@ test("launch: Telegram's own hash is dropped, a startapp key opens its status pa
 });
 
 test("launch: old #/ links land on their path", () => {
-  assert.equal(launchPath("/", "#/coverage"), "/coverage");
+  assert.equal(launchPath("/", "#/activity"), "/activity");
   assert.equal(launchPath("/", `#/s/${KEY}`), `/s/${KEY}`);
 });
 
