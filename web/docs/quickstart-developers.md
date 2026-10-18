@@ -46,7 +46,7 @@ console.log(sub.telegramUrl); // open it to get the alert in Telegram
 
 Run it with your key in the environment, never in the code: `PRIVATE_KEY=0x… node watch.ts` on Node 22.18 or later, or `PRIVATE_KEY=0x… npx tsx watch.ts`.
 
-Before signing, the SDK checks everything the workers check. If something is wrong (a typo in the key, a warning time over a day, a wallet with no GLM), it throws a `PrometheusError` with a plain sentence and signs nothing.
+Before signing, the SDK checks everything the workers check. If something is wrong (a typo in the key, a warning time over a day, a wallet with no GLM at all), it throws a `PrometheusError` with a plain sentence and signs nothing.
 
 ## 3. Follow it in Telegram
 

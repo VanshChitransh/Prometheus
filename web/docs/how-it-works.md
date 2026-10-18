@@ -61,7 +61,7 @@ The checkpoint moves past a block only once every event in it is handled. So a c
 
 When a subscription's condition comes true, the worker does one of two things.
 
-- **Alert.** For `expiring`, `expired`, `changed` and `new_match`, the worker writes a receipt. The relay turns that receipt into a Telegram message. Each subscription gets at most `max_per_day` alerts per UTC day: 20 unless you set it, up to 100.
+- **Alert.** For `expiring`, `expired`, `changed` and `new_match`, the worker writes a receipt. The relay turns that receipt into a Telegram message. Each subscription gets at most `max_per_day` alerts per UTC day: 20 unless you set it, up to 100 (only when you build the entity yourself; see [Without the SDK](./without-the-sdk.md)).
 - **Renew.** For `keep`, the worker extends the target entity's expiry. The extension and its `kept` receipt go in **one transaction**, so a `kept` receipt exists only if the renewal landed. If the worker can't or won't renew, it writes a receipt saying why. See [Triggers](./triggers.md) for every outcome.
 
 Before acting, the worker checks that no trusted worker has already written a receipt for this trigger. That check is how two workers share the job without talking to each other. See [Workers and failover](./workers-and-failover.md).
@@ -90,7 +90,7 @@ Say you want a warning 10 minutes before an entity expires. Its expiry block is 
 5. **The relay delivers it.** The relay reads the receipt (a free call), checks that its creator is a trusted worker, records the trigger id as delivered, and sends a DM to everyone following your subscription. The DM links to the target and the receipt on the explorer.
 6. **Block 11,515: worker B checks.** B's 15-block wait is over. It counts trusted receipts with the same trigger id: 1. B writes nothing.
 
-If worker A had been down, B would have counted 0 at block 11,515 and written the receipt itself, 15 blocks (30 seconds) late. On the Activity page, under the hood, it would count as delivered only by B.
+If worker A had been down, B would have counted 0 at block 11,515 and written the receipt itself, 15 blocks (30 seconds) late. On the Activity page, worker B's row would count it as delivered only by B, 15 blocks late.
 
 ## Next
 

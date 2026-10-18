@@ -25,14 +25,14 @@ rpc() { curl -s -D - "$RPC" -H 'content-type: application/json' \
 
 ## Summary
 
-| #   | Issue                                                                              | Surface          | Severity | Status                                                                                  |
-| --- | ---------------------------------------------------------------------------------- | ---------------- | -------- | --------------------------------------------------------------------------------------- |
-| 1   | SDK `getEntity` is billed 100 units; the free `arkiv_getEntity` has no SDK wrapper | SDK, RPC pricing | Medium   | Worked around · [filed #18](https://github.com/Arkiv-Network/reported-issues/issues/18) |
-| 2   | Live events have no filter, no backfill and no clean way to send an access key     | SDK, WebSocket   | High     | Worked around                                                                           |
-| 3   | `arkiv_getEntityCount`: no query in the SDK, unknown fields silently ignored       | SDK, RPC         | Medium   | Worked around                                                                           |
-| 4   | `eth_getLogs` has two different caps behind one error code                         | RPC              | Low      | Handled                                                                                 |
-| 5   | The `tiramisu` chain definition has no `blockTime`                                 | SDK              | Low      | Worked around                                                                           |
-| 6   | The faucet funds the signed-in wallet by default and has no documented API         | Hub faucet       | Low      | Worked around                                                                           |
+| #   | Issue                                                                                       | Surface          | Severity | Status                                                                                  |
+| --- | ------------------------------------------------------------------------------------------- | ---------------- | -------- | --------------------------------------------------------------------------------------- |
+| 1   | SDK `getEntity` is billed 100 units; the free `arkiv_getEntity` has no SDK wrapper          | SDK, RPC pricing | Medium   | Worked around · [filed #18](https://github.com/Arkiv-Network/reported-issues/issues/18) |
+| 2   | Live events have no filter, no gap-fill on reconnect and no clean way to send an access key | SDK, WebSocket   | High     | Worked around                                                                           |
+| 3   | `arkiv_getEntityCount`: no query in the SDK, unknown fields silently ignored                | SDK, RPC         | Medium   | Worked around                                                                           |
+| 4   | `eth_getLogs` has two different caps behind one error code                                  | RPC              | Low      | Handled                                                                                 |
+| 5   | The `tiramisu` chain definition has no `blockTime`                                          | SDK              | Low      | Worked around                                                                           |
+| 6   | The faucet funds the signed-in wallet by default and has no documented API                  | Hub faucet       | Low      | Worked around                                                                           |
 
 **If Arkiv fixed one thing first:** issue 2. A filterable, resumable event stream would remove the largest piece of infrastructure every reactive Arkiv app has to rebuild.
 
@@ -62,7 +62,7 @@ rpc arkiv_getEntity "[\"$KEY\"]"                               # no arkiv-cost h
 rpc arkiv_query "[\"\$key = $KEY\",{\"limit\":\"0x1\"}]"        # error -32001, still arkiv-cost: 100
 ```
 
-**Impact.** Without an access key the budget is 10,000 cost units per IP per window, so about 100 SDK `getEntity` calls exhaust it. Our web app hit this on 18 October: `429 ANON_COST_LIMITED`, `ratelimit: limit=10000, remaining=0`, `retry-after: 2000` (a 33-minute lockout). With an access key the effect is small: 15+ paid queries did not move our monthly quota off 1%.
+**Impact.** Without an access key the budget is 10,000 cost units per IP per window, so about 100 SDK `getEntity` calls exhaust it. Our web app hit this on 18 October: `429 ANON_COST_LIMITED`, `ratelimit: limit=10000, remaining=0`, `retry-after: 2000` (a 33-minute lockout). With an access key the effect is small: 15+ paid queries did not move our monthly quota off 1%. "Free" calls still count toward the per-request rate limit (`ratelimit: limit=600` per 60-second window).
 
 **Our workaround.** `rawGetEntity` in [`shared/arkiv.ts`](../shared/arkiv.ts) calls `arkiv_getEntity` through a typed cast on `client.request` and decodes the result. Paid queries only list keys; each entity is then read for free. The web app reads through a keyed proxy ([`api/rpc.ts`](../api/rpc.ts)), so visitors never spend their own anonymous budget.
 
@@ -70,7 +70,7 @@ rpc arkiv_query "[\"\$key = $KEY\",{\"limit\":\"0x1\"}]"        # error -32001, 
 
 ---
 
-## 2. Live events have no filter, no backfill and no clean way to send an access key
+## 2. Live events have no filter, no gap-fill on reconnect and no clean way to send an access key
 
 | Surface                                           | Severity | Status        | Upstream                                                                                                                                                  |
 | ------------------------------------------------- | -------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -81,8 +81,8 @@ rpc arkiv_query "[\"\$key = $KEY\",{\"limit\":\"0x1\"}]"        # error -32001, 
 **Actual.**
 
 - **No filter.** `watchEntityEvents` subscribes to every entity event on the chain (about 0.9 events per second on 17 October, mostly other apps). The node itself can filter, since `entityKey` and `owner` are indexed topics and a raw `eth_subscribe` with an `owner` topic worked on 13 October, but the SDK passes only the contract address and event list.
-- **Silent switch to polling.** The SDK does not forward viem's `poll` option, so passing `fromBlock` quietly turns the push subscription into HTTP polling (already tracked in #112).
-- **No backfill after a reconnect.** When we force-closed the socket, viem re-sent the subscription, but the roughly 4 seconds of events in between were never delivered (16 October). Filling the gap means replaying `eth_getLogs`, yet SDK 0.8.1 exports neither the entity contract address (`0x4400…0044`, internal in `src/consts.ts`) nor the log decoder, so we had to hard-code one and copy the other.
+- **Replay only by polling.** `fromBlock` does replay, but only by polling, and a push subscription that reconnects never fills its gap. Over `webSocket()` the SDK subscribes by push, but with `fromBlock` it polls, with no way to choose (#112).
+- **No gap-fill after a reconnect.** When we force-closed the socket, viem re-sent the subscription, but the roughly 4 seconds of events in between were never delivered (16 October). Filling the gap means replaying `eth_getLogs`, yet SDK 0.8.1 exports the event ABI (`ENTITY_EVENTS_ABI`) but not the contract address (`0x4400…0044`, internal in `src/consts.ts`) or its log-to-event mapper, so we hard-coded the address and re-wrote the mapping (`shared/stream.ts`).
 - **Access key over WebSocket.** The docs say the WebSocket endpoint accepts the key in the URL path, and it works (a valid key connects with `101`; an invalid one is refused with `401 INVALID_KEY`). But Arkiv's own [skills known-issues](https://github.com/Arkiv-Network/skills/blob/main/skills/arkiv/references/known-issues.md) call a key in an RPC URL a legacy pattern to avoid, and viem includes the full URL, key and all, in its error messages. viem's `webSocket` transport cannot send the header form, so there is no option that is both supported and safe.
 
 **Steps to reproduce.**
@@ -105,7 +105,7 @@ flowchart LR
 
 **Our workaround.** A stall timer, an event buffer, a per-block checkpoint and a chunked `eth_getLogs` replay ([`shared/stream.ts`](../shared/stream.ts), [`shared/replay.ts`](../shared/replay.ts)). In a failover rehearsal on 17 October we cut worker B's network for 40 seconds; it logged `no head for 15s: stall → resubscribe`, replayed 28 blocks and still wrote every receipt on schedule ([submission.md](submission.md#failover-rehearsal-t54)).
 
-**Suggested fix.** Accept `owner` and `entityKey` filters in `watchEntityEvents` (#124). Support a `fromBlock` that backfills and then switches to push, or expose a resume helper. Export `ARKIV_ADDRESS` and the log decoder. Give the docs and the skills one recommended way to authenticate a WebSocket.
+**Suggested fix.** Make a `fromBlock` replay switch to push once it reaches the head, fill the gap after a reconnect, accept `owner`/`entityKey` filters (#124), and export `ARKIV_ADDRESS`. Give the docs and the skills one recommended way to authenticate a WebSocket.
 
 ---
 
@@ -122,7 +122,7 @@ flowchart LR
 - SDK 0.8.1's `getEntityCount()` takes no arguments and returns the number of live entities on the whole chain. `ArkivRpcSchema` types the method with no parameters.
 - The node accepts `[{ "query": "…", "block": N }]` and returns the filtered count with no `arkiv-cost` header. Its counts matched `arkiv_query`'s row counts on three queries (2, 28 and 98 entities).
 - **Unknown fields are silently dropped.** A misspelt field such as `qery` returns the chain-wide total instead of an error. In a deduplication check, that reads as "already written", and the alert is never sent.
-- **Two names and two formats for the same idea.** `arkiv_query` takes `atBlock` as a hex string; `arkiv_getEntityCount` takes `block` as a plain number and rejects hex. We passed `atBlock` to the count, the node ignored it without an error, and until we re-tested we wrongly believed counts could not look at past blocks.
+- **Two names and two formats for the same idea.** `arkiv_query` takes `atBlock` as a hex string; `arkiv_getEntityCount` takes `block` as a plain number and rejects hex. We passed `atBlock` to the count, the node ignored it without an error, and until we re-tested we wrongly believed counts could not look at past blocks. (The JSON-RPC page documents `block`; we missed it. The friction is that a wrong field name is ignored instead of rejected, and `arkiv_query` names the same idea `atBlock`, in hex.)
 
 **Steps to reproduce.** Our `KEY` entity was created at block 709242.
 

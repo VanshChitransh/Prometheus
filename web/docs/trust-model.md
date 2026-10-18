@@ -34,13 +34,13 @@ Everything in a subscription can be read by anyone: your wallet address, the ent
 
 ## What you trust, and what you don't
 
-| Part               | You trust it to                                                                    | It can't                                                                                    |
-| ------------------ | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Arkiv              | store entities, expire them on time, record who signed what                        | –                                                                                           |
-| Your wallet        | sign your subscriptions                                                            | –                                                                                           |
-| Worker A, worker B | act on time and write a receipt for each action                                    | change your subscription, rewrite a receipt, or renew an entity whose owner didn't allow it |
-| The relay          | send a DM to every chat that follows your subscription                             | write receipts that count, or hide receipts from the status page                            |
-| The site           | list the right workers in `TRUSTED_WORKERS`, and forward Arkiv's answers unaltered | write to Arkiv                                                                              |
+| Part               | You trust it to                                                                    | It can't                                                                                                                                                 |
+| ------------------ | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Arkiv              | store entities, expire them on time, record who signed what                        | –                                                                                                                                                        |
+| Your wallet        | sign your subscriptions                                                            | –                                                                                                                                                        |
+| Worker A, worker B | act on time and write a receipt for each action                                    | change your subscription, rewrite a receipt, or renew an entity whose owner didn't allow it                                                              |
+| The relay          | send a DM to every chat that follows your subscription                             | write receipts that count, or hide receipts from the status page                                                                                         |
+| The site           | list the right workers in `TRUSTED_WORKERS`, and forward Arkiv's answers unaltered | sign for you if you use MetaMask. With the built-in browser or Telegram wallet, the site's code holds your key, so you trust the deploy not to misuse it |
 
 Why those "can't"s hold:
 
