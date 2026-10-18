@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-// Docs and blog posts: Markdown files in web/docs and web/blog, bundled at build time and rendered with
+// Docs: Markdown files in web/docs, bundled at build time and rendered with
 // marked. The files are ours (not on-chain text), so their HTML is trusted. The same files are served
 // raw for agents (vite.config.ts: /llms.txt, /llms-full.txt, /docs/<slug>.md).
 import { Marked } from "marked";
@@ -48,53 +48,6 @@ export const DOCS: Doc[] = DOCS_NAV.flatMap((s) => s.pages)
 
 export const docBySlug = (slug: string) => DOCS.find((d) => d.slug === slug);
 
-// --- blog ---
-
-export type Post = {
-  slug: string;
-  title: string;
-  dek: string;
-  date: string;
-  author: string;
-  body: string;
-  minutes: number;
-};
-
-const postFiles = import.meta.glob("../blog/*.md", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-}) as Record<string, string>;
-
-export const POSTS: Post[] = Object.entries(postFiles)
-  .map(([path, raw]) => {
-    const { front, body } = splitFront(raw);
-    return {
-      slug: slugOf(path),
-      title: front.title || slugOf(path),
-      dek: front.dek || "",
-      date: front.date || "",
-      author: front.author || "The Prometheus team",
-      body,
-      minutes: Math.max(1, Math.round(body.split(/\s+/).length / 230)),
-    };
-  })
-  // Newest first; same day, by slug (so a series reads in the order its slugs say).
-  .sort((a, b) =>
-    a.date === b.date ? a.slug.localeCompare(b.slug) : a.date < b.date ? 1 : -1,
-  );
-
-export const postBySlug = (slug: string) => POSTS.find((p) => p.slug === slug);
-
-export const formatDate = (iso: string) =>
-  iso
-    ? new Date(`${iso}T12:00:00`).toLocaleDateString("en-GB", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      })
-    : "";
-
 // --- rendering ---
 
 export type Heading = { id: string; text: string };
@@ -116,9 +69,7 @@ function route(href: string) {
     /^(?:\.\/|\/docs\/)?([a-z0-9-]+)\.md(?:#.*)?$/.exec(href) ??
     /^\/docs\/([a-z0-9-]+)\/?(?:#.*)?$/.exec(href);
   if (doc) return `#/docs/${doc[1]}`;
-  const post = /^\/blog\/([a-z0-9-]+)\/?$/.exec(href);
-  if (post) return `#/blog/${post[1]}`;
-  if (href === "/docs" || href === "/blog") return `#${href}`;
+  if (href === "/docs") return `#${href}`;
   return href;
 }
 

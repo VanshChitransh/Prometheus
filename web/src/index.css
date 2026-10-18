@@ -155,7 +155,7 @@
   }
 }
 
-/* Long-form text: docs pages and blog posts (rendered Markdown). */
+/* Long-form text: docs pages (rendered Markdown). */
 @layer components {
   .prose {
     color: var(--ink);
