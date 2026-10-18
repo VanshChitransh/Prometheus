@@ -15,6 +15,7 @@
     "web": "vite",
     "web:build": "vite build",
     "seed": "node --env-file=.env scripts/seed.ts",
+    "watch-others": "node --env-file=.env scripts/watch-others.ts",
     "probe": "node --env-file=.env --env-file=.env.worker-a scripts/probe.ts",
     "openrouter:login": "node scripts/openrouter-login.ts"
   },

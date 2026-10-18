@@ -24,6 +24,28 @@ Everything here can be checked by anyone against the Tiramisu testnet. Wallet ro
 - **The bot token and all private keys** (worker, sponsor, demo wallets). These are secrets, held in env vars on each host and never written anywhere public.
 - **Worker checkpoints and unsent receipts** (`state/`). Each worker's restart bookkeeping. The subscriptions and receipts themselves live on Arkiv.
 
+## Watching other teams' data
+
+Prometheus watches three other buildathon teams' live entities on Tiramisu. We didn't ask them, add anything to their apps, or write to their data: each team published a schema, and Arkiv data is public. Their data and detection are their work; the alerts and receipts are ours.
+
+Watch-only on purpose: every subscription below is `new_match`, `changed`, `expiring` or `expired`, which only read. We never `keep` another team's entity. An extend we send can make the owner's own batch revert (SiteLog's friction note F9), Door Ledger's leases must lapse when its watcher loses sight of a halt, and the rules ban sabotage.
+
+Created 18 Oct 2026 by `npm run watch-others` ([scripts/watch-others.ts](../scripts/watch-others.ts)) from their own wallet, `0x4887d10C82F2B7Bb199F1dcAB28585F751385094`, for 7 days. Both workers logged every one as `added`.
+
+| Team (their schema)                                                                                    | Subscription                         | Trigger                                                            | Key                                                                  |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------ | ------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| [Door Ledger](https://github.com/bongbongcrypto/door-ledger/blob/main/arkiv/schema.md): exchange halts | Every new halt                       | `new_match` on `app = doorledger, kind = lease`, owner = Watcher A | `0x52e0946171f563ed511da848e11d71ab87ab587753edf37b8ee4da1158d9585d` |
+|                                                                                                        | Gate ABS deposit halt closed         | `changed` (the lease is deleted on close)                          | `0x669dc1f778da72a176d88285e68e3c6b773b37c2626bf5d6e1b993c417d7fcbd` |
+|                                                                                                        | Gate CRO deposit halt closed         | `changed`                                                          | `0x4bf337a71677a570c38e0172647ed98cdf6019dbe810a218789b681be9f13437` |
+| [Arkiv Canary](https://gitlab.com/davidj-builds/arkiv-canary): warrant canaries                        | Example Mail Co. dies in 1 h         | `expiring`, lead 1,800 blocks                                      | `0x3a3aab7673ba0a62e12946b38ca5a5675c809fb6a2ad63373eb5cd95d23476e2` |
+|                                                                                                        | Example Mail Co. died                | `expired`                                                          | `0xffed7354489c40e6becfa077245d912bc06e0c6caf7ddfbefae2737990f4299d` |
+|                                                                                                        | Example Mail Co. renewed             | `changed` (a renewal patches `due_at`)                             | `0xfcca7bc7966a80734038c185cdfb66dfe71990a8dda5ddf9c064d1316c71faca` |
+|                                                                                                        | arkiv-canary.sites.tab.bot died      | `expired`                                                          | `0x63b8028a277ad0d199a053719c512be5d1983acfc3c5297ee562e8a23ec3c6f1` |
+|                                                                                                        | New canary published                 | `new_match` on `app = arkiv-canary, type = canary`                 | `0x51d773d73a209ab71ec8300c90bfe9dafabc61a58116dfbfb362c38419337ebb` |
+| [Switched Off](https://github.com/RohanGlitched/switched-off): Indian internet shutdown orders         | New shutdown order (drills left out) | `new_match` on `app = switched-off, type = record, net = live`     | `0xde809dfaf351e65b53f251bed109ad37f420f7008ed5ea1f383f1aaa1a938652` |
+
+See any of them at `https://prometheus-arkiv.vercel.app/s/<key>`; once one fires, its receipts appear there and on the Activity page. Receipts for one: `project = str('prometheus') AND kind = str('receipt') AND subscription = key(<key>)`.
+
 ## Failover rehearsal (T5.4)
 
 Worker A (`0x6a693Fd642c1F8F5E78321C2722208A3791eE79B`, delay 0, DigitalOcean nyc1) acts first. Worker B (`0xa70C8245582d173b04cAe453E9fF6D17a6e58294`, delay 15 blocks, DigitalOcean sfo2) acts only on what A missed. The relay runs beside A and stays up throughout.

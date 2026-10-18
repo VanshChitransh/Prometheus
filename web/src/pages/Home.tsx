@@ -440,8 +440,9 @@ function Problem() {
               finds out.
             </p>
             <p>
-              In this buildathon alone, <span className="text-ink">6 teams</span>{" "}
-              shipped a renew button someone has to remember to press, and{" "}
+              In this buildathon alone,{" "}
+              <span className="text-ink">6 teams</span> shipped a renew button
+              someone has to remember to press, and{" "}
               <span className="text-ink">6</span> built their own watcher. Here
               is who loses out today.
             </p>
@@ -827,7 +828,7 @@ function Trust() {
             )}
           </p>
           <a
-            href="/coverage"
+            href="/activity"
             className="inline-flex h-11 items-center gap-1.5 rounded-full bg-white px-5 text-[15px] font-medium text-[#0a0a0a] transition-transform duration-150 active:scale-[0.97]"
           >
             See the live record <ArrowUpRight className="size-4" />

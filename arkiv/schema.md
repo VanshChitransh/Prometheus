@@ -142,7 +142,7 @@ erDiagram
 | 2   | Has a trusted worker fired this trigger?      | worker          | `arkiv_getEntityCount` (free) | `project = str('prometheus') AND kind = str('receipt') AND trigger_id = bytes32(<id>) AND TRUSTED`                                          |
 | 3   | Today's alerts for a subscription (daily cap) | worker          | `arkiv_getEntityCount` (free) | `project = str('prometheus') AND kind = str('receipt') AND subscription = key(<sub>) AND trigger_block >= u64(<dayStartBlock>) AND TRUSTED` |
 | 4   | Receipts for one subscription                 | web `/s/:key`   | `arkiv_query` (paid)          | `project = str('prometheus') AND kind = str('receipt') AND subscription = key(<sub>) AND TRUSTED`                                           |
-| 5   | Coverage (last 24 h)                          | web `/coverage` | `arkiv_query` (paid)          | `project = str('prometheus') AND kind = str('receipt') AND trigger_block >= u64(<head − 43200>) AND TRUSTED`                                |
+| 5   | Coverage (last 24 h)                          | web `/activity` | `arkiv_query` (paid)          | `project = str('prometheus') AND kind = str('receipt') AND trigger_block >= u64(<head − 43200>) AND TRUSTED`                                |
 | 6   | My subscriptions                              | web `/mine`     | `arkiv_query` (paid)          | `project = str('prometheus') AND kind = str('subscription') AND $creator = addr(<user>)`                                                    |
 | 7   | Live workers                                  | relay, web      | `arkiv_getEntityCount` (free) | `project = str('prometheus') AND kind = str('worker') AND TRUSTED`                                                                          |
 

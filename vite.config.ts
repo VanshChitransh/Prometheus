@@ -93,7 +93,23 @@ function agentFiles(site: string): Plugin {
 export default defineConfig(({ mode }) => {
   // An explicit allow-list, not a prefix: ARKIV_ACCESS_KEY must never reach the bundle.
   const env = loadEnv(mode, process.cwd(), "");
+  const rpc =
+    env.ARKIV_HTTP || "https://rpc.tiramisu.db-chain.testnet.arkiv.network";
   return {
+    // `vite dev` doesn't run api/rpc.ts (a Vercel function), so this stands in for it: same keyed
+    // forward, the key added here in Node. Without a key, /api/rpc 404s and reads go keyless.
+    server: env.ARKIV_ACCESS_KEY
+      ? {
+          proxy: {
+            "/api/rpc": {
+              target: rpc,
+              changeOrigin: true,
+              rewrite: () => new URL(rpc).pathname,
+              headers: { "X-API-KEY": env.ARKIV_ACCESS_KEY },
+            },
+          },
+        }
+      : undefined,
     root: "web",
     plugins: [
       react(),
@@ -102,9 +118,7 @@ export default defineConfig(({ mode }) => {
     ],
     envDir: "..",
     define: {
-      __ARKIV_HTTP__: JSON.stringify(
-        env.ARKIV_HTTP || "https://rpc.tiramisu.db-chain.testnet.arkiv.network",
-      ),
+      __ARKIV_HTTP__: JSON.stringify(rpc),
       __TRUSTED_WORKERS__: JSON.stringify(env.TRUSTED_WORKERS ?? ""),
       // The relay's public https URL, for free GLM in the Mini App; empty = the faucet link instead.
       __RELAY_URL__: JSON.stringify(env.RELAY_PUBLIC_URL ?? ""),
