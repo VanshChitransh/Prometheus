@@ -8,7 +8,7 @@ This takes about five minutes. You install `prometheus-arkiv`, create one subscr
 
 ## What you need
 
-- **Node 20 or later**, or any bundler for a browser app.
+- **Node 22.18 or later** (it runs `.ts` files directly), or `npx tsx` on older Node, or any bundler for a browser app.
 - **A wallet with a little testnet GLM** (the fee token on Arkiv's Tiramisu testnet). Get some free from the [faucet](https://hub.arkiv.network/faucet).
 - **The key of an entity to watch.** Any live Arkiv entity works, yours or someone else's: `0x` followed by 64 hex characters. You can copy one from the [explorer](https://tiramisu.explorer.arkiv.network).
 
@@ -44,7 +44,7 @@ console.log(sub.key); // the subscription: keep it to renew, cancel or read rece
 console.log(sub.telegramUrl); // open it to get the alert in Telegram
 ```
 
-Run it with your key in the environment, never in the code: `PRIVATE_KEY=0x… node watch.ts`.
+Run it with your key in the environment, never in the code: `PRIVATE_KEY=0x… node watch.ts` on Node 22.18 or later, or `PRIVATE_KEY=0x… npx tsx watch.ts`.
 
 Before signing, the SDK checks everything the workers check. If something is wrong (a typo in the key, a warning time over a day, a wallet with no GLM), it throws a `PrometheusError` with a plain sentence and signs nothing.
 
@@ -56,10 +56,12 @@ When the warning time comes, the message looks like this:
 
 ```text
 🟠 EXPIRING SOON · Our canary
-Block 703,243.
+Block 703243.
 
+Status: <site>/s/0x…
 Target: https://tiramisu.explorer.arkiv.network/entity/0x…
 Receipt: https://tiramisu.explorer.arkiv.network/entity/0x…
+Tx: https://tiramisu.explorer.arkiv.network/tx/0x…
 ```
 
 ## 4. See the receipt
@@ -83,14 +85,14 @@ import { tiramisu } from "@arkiv-network/sdk/chains";
 import { custom } from "viem";
 import { Prometheus } from "prometheus-arkiv";
 
-const [account] = await window.ethereum.request({
-  method: "eth_requestAccounts",
-});
+const ethereum = (window as any).ethereum;
+const [account] = await ethereum.request({ method: "eth_requestAccounts" });
 const wallet = createWalletClient({
   chain: tiramisu,
-  transport: custom(window.ethereum),
+  transport: custom(ethereum),
   account,
 });
+await wallet.addChain({ chain: tiramisu }); // adds Tiramisu if missing; MetaMask then asks to switch to it
 const prometheus = new Prometheus({ wallet });
 ```
 

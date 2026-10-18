@@ -14,7 +14,7 @@ This report covers every Arkiv surface we used: what we tested, what we expected
 | Runtime      | Node 24.10.0 on macOS; Docker `node:24.10-slim` on two DigitalOcean droplets                |
 | Probe script | [`scripts/probe.ts`](../scripts/probe.ts) (`npm run probe`)                                 |
 
-**Reproducing:** every repro below is a plain JSON-RPC call. Paste this once, then run the snippets. `KEY` is our worker A's heartbeat entity, which stays live until 23 October; any live entity key works.
+**Reproducing:** every repro below is a plain JSON-RPC call. Paste this once, then run the snippets. `KEY` is our worker A's heartbeat entity, which stays live while the workers keep running this commit; any live entity key works.
 
 ```sh
 RPC=https://rpc.tiramisu.db-chain.testnet.arkiv.network
@@ -103,7 +103,7 @@ flowchart LR
   F --> H["handle the event"] --> C["save the checkpoint (block number)"]
 ```
 
-**Our workaround.** A stall timer, an event buffer, a per-block checkpoint and a chunked `eth_getLogs` replay ([`shared/stream.ts`](../shared/stream.ts), [`shared/replay.ts`](../shared/replay.ts)). In a failover rehearsal on 17 October we cut worker B's network for 40 seconds; it logged `no head for 15s: stall → resubscribe`, replayed 28 blocks and still delivered every alert on time ([submission.md](submission.md#failover-rehearsal-t54)).
+**Our workaround.** A stall timer, an event buffer, a per-block checkpoint and a chunked `eth_getLogs` replay ([`shared/stream.ts`](../shared/stream.ts), [`shared/replay.ts`](../shared/replay.ts)). In a failover rehearsal on 17 October we cut worker B's network for 40 seconds; it logged `no head for 15s: stall → resubscribe`, replayed 28 blocks and still wrote every receipt on schedule ([submission.md](submission.md#failover-rehearsal-t54)).
 
 **Suggested fix.** Accept `owner` and `entityKey` filters in `watchEntityEvents` (#124). Support a `fromBlock` that backfills and then switches to push, or expose a resume helper. Export `ARKIV_ADDRESS` and the log decoder. Give the docs and the skills one recommended way to authenticate a WebSocket.
 
@@ -129,7 +129,7 @@ flowchart LR
 ```sh
 rpc arkiv_getEntityCount "[{\"query\":\"\$key = key($KEY)\",\"block\":709241}]"        # 0 (correct)
 rpc arkiv_getEntityCount "[{\"query\":\"\$key = key($KEY)\",\"atBlock\":\"0xad279\"}]"  # 1 (atBlock ignored)
-rpc arkiv_getEntityCount "[{\"qery\":\"\$key = key($KEY)\"}]"                          # ~29,000 (typo ignored)
+rpc arkiv_getEntityCount "[{\"qery\":\"\$key = key($KEY)\"}]"                          # the chain-wide total (about 30,000 on 18 Oct; typo ignored)
 ```
 
 **Our workaround.** `freeCount` in [`shared/arkiv.ts`](../shared/arkiv.ts), a cast on `client.request`, used for receipt deduplication, the per-subscriber daily cap, worker liveness and new-entity matching.
@@ -232,7 +232,7 @@ console.log(tiramisu.blockTime, tiramisu.blockExplorers); // undefined undefined
 | `arkiv_query` cursor pages                              | Pinned to one block                                      | Consistent snapshot across pages                                                                                    |
 | Rate-limit responses in a browser                       | Headers readable by the page                             | `Retry-After`, `RateLimit` and `Arkiv-Cost` are exposed through CORS                                                |
 | Expiry as a liveness signal                             | A stopped worker's 30-minute heartbeat entity lapses     | Lapsed 26.5 minutes after the stop; the relay dropped the worker from `/health`                                     |
-| Two workers, one shared state on Arkiv                  | Worker B covers what worker A misses, with no duplicates | 8 of 8 alerts written by B, each exactly 15 blocks late, 0 duplicates                                               |
+| Two workers, one shared state on Arkiv                  | Worker B covers what worker A misses, with no duplicates | 8 of 8 receipts written by B, each exactly 15 blocks late, 0 duplicates                                             |
 
 ## Corrections to our earlier log
 

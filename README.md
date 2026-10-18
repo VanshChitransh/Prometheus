@@ -25,7 +25,7 @@
 
 ## 📑 Table of contents
 
-1. [The problem: data that dies in silence](#-the-problem-data-that-dies-in-silence)
+1. [The problem: data that dies in silence](#%EF%B8%8F-the-problem-data-that-dies-in-silence)
 2. [The solution: Prometheus in one picture](#-the-solution-prometheus-in-one-picture)
 3. [The five triggers](#-the-five-triggers)
 4. [Get started in 60 seconds](#-get-started-in-60-seconds)
@@ -37,15 +37,15 @@
 6. [How an alert travels, end to end](#-how-an-alert-travels-end-to-end)
 7. [Two workers, zero coordination](#-two-workers-zero-coordination)
 8. [Inside a worker](#-inside-a-worker)
-9. [Data on Arkiv: the three entities](#-data-on-arkiv-the-three-entities)
-10. [Trust model: who you have to believe](#-trust-model-who-you-have-to-believe)
+9. [Data on Arkiv: the three entities](#%EF%B8%8F-data-on-arkiv-the-three-entities)
+10. [Trust model: who you have to believe](#%EF%B8%8F-trust-model-who-you-have-to-believe)
 11. [Limits](#-limits)
 12. [The web app](#-the-web-app)
 13. [The relay](#-the-relay)
-14. [Repository tour](#-repository-tour)
+14. [Repository tour](#%EF%B8%8F-repository-tour)
 15. [Run it locally](#-run-it-locally)
 16. [Deploy](#-deploy)
-17. [Run your own worker](#-run-your-own-worker)
+17. [Run your own worker](#%EF%B8%8F-run-your-own-worker)
 18. [Proof: the failover rehearsal](#-proof-the-failover-rehearsal)
 19. [What we learned building on Arkiv](#-what-we-learned-building-on-arkiv)
 20. [Known limits](#-known-limits)
@@ -65,16 +65,16 @@ That's a great property: storage cleans itself up. But Arkiv's own documentation
 
 Nothing tells you. No log, no callback, no webhook. You only find out if you go and look.
 
-For a lot of apps, **that silent moment is the most important moment there is**, and the people who lose out are real. In this buildathon alone, **6 teams shipped a renew button that a person has to remember to press, and 6 built their own watcher process** (cron jobs, polling loops, always-on listeners). Here is who is harmed today:
+For a lot of apps, **that silent moment is the most important moment there is**, and the people who lose out are real. In this buildathon alone, **several teams shipped a renew button that a person has to remember to press, or built their own watcher process** (cron jobs, polling loops, always-on listeners), for example:
 
-| App (team)                                                                                                              | Who is harmed today                                                                                                                                                 | What the team had to build                                                                      | What changes on day one with Prometheus                                                                     |
-| ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| [Nexora Ledger](https://github.com/GuTS805/Nexora)                                                                      | **Gig workers in India.** A record of what a job paid, or what went wrong, expires when no one presses "Keep alive +30 days" in time                                | The keep-alive button, plus its own event listener and polling loop                             | 🟢 `keep` renews the record before it lapses. A worker pays the fee and writes a `kept` receipt             |
-| [Fine Print Ledger](https://github.com/ShenJun93/fine-print-ledger)                                                     | **Hackathon entrants** proving a contest changed its rules. A rules snapshot that nobody cited lapses after 180 days                                                | A "cite" button that extends the snapshot, and a snapshotter that re-checks pages to renew them | 🟢 `keep` holds the snapshot you rely on. ✨ `new_match` pings you when a new diff for your contest appears |
-| [SiteLog](https://github.com/ttimesai-star/sitelog)                                                                     | **Construction site teams.** An open defect remark disappears after 90 quiet days, with its photo and norm reference                                                | An "extend remark" button                                                                       | 🟠 `expiring` warns the site a day ahead, or 🟢 `keep` renews it                                            |
-| [Lapse](https://github.com/northstar-trustrail/lapse) and [Arkiv Canary](https://gitlab.com/davidj-builds/arkiv-canary) | **Users of VPNs and mail providers.** A dead warrant canary gets "missed, since nobody is watching a static page for a renewal that didn't happen" (Lapse's README) | A renew flow for the publisher, plus `lapse check` and a monitor CLI you "drop in cron"         | 🔴 `expired` sends a Telegram ping. No cron, no server. Prometheus **never** renews a canary                |
-| [Door Ledger](https://github.com/bongbongcrypto/door-ledger)                                                            | **Traders with funds stuck behind an exchange halt.** Halt rows "lapse unless renewed" by the team's own watchers, and alerts stay in the author's private monitor  | Two always-on Python watchers and a polling consumer                                            | ✨ `new_match` on halts for your exchange sends a Telegram ping, for anyone, not just the author            |
-| [Tacho](https://github.com/Minkhanov/tacho-arkiv)                                                                       | **Merchants paid by an AI agent.** The agent's spending mandate lapses silently when the human stops renewing it                                                    | A human heartbeat button, a 30-second polling loop and a WebSocket listener                     | 🔴 `expired` and 🔵 `changed` on the mandate tell the merchant the moment its authority ends                |
+| App (team)                                                                                                              | Who is harmed today                                                                                                                                                            | What the team had to build                                                                      | What changes on day one with Prometheus                                                                     |
+| ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| [Nexora Ledger](https://github.com/GuTS805/Nexora)                                                                      | **Gig workers in India.** A record of what a job paid, or what went wrong, expires when no one presses "Keep alive +30 days" in time                                           | The keep-alive button, plus its own event listener and polling loop                             | 🟢 `keep` renews the record before it lapses. A worker pays the fee and writes a `kept` receipt             |
+| [Fine Print Ledger](https://github.com/ShenJun93/fine-print-ledger)                                                     | **Hackathon entrants** proving a contest changed its rules. A rules snapshot that nobody cited lapses after 180 days                                                           | A "cite" button that extends the snapshot, and a snapshotter that re-checks pages to renew them | 🟢 `keep` holds the snapshot you rely on. ✨ `new_match` pings you when a new diff for your contest appears |
+| [SiteLog](https://github.com/ttimesai-star/sitelog)                                                                     | **Construction site teams.** An open defect remark disappears after 90 quiet days, with its photo and norm reference                                                           | An "extend remark" button                                                                       | 🟠 `expiring` warns the site a day ahead, or 🟢 `keep` renews it                                            |
+| [Lapse](https://github.com/northstar-trustrail/lapse) and [Arkiv Canary](https://gitlab.com/davidj-builds/arkiv-canary) | **Users of VPNs and mail providers.** A dead warrant canary gets "missed, since nobody is watching a static page for a renewal that didn't happen" (Lapse's README)            | A renew flow for the publisher, plus `lapse check` and a monitor CLI you "drop in cron"         | 🔴 `expired` sends a Telegram ping. No cron, no server. Prometheus **never** renews a canary                |
+| [Door Ledger](https://github.com/bongbongcrypto/door-ledger)                                                            | **Traders with funds stuck behind an exchange halt.** Halt rows "lapse unless renewed" by the team's own watchers, and halts show on a page you must check; nothing alerts you | Two always-on Python watchers and a polling consumer                                            | ✨ `new_match` on halts for your exchange sends a Telegram ping, for anyone, not just the author            |
+| [Tacho](https://github.com/Minkhanov/tacho-arkiv)                                                                       | **Merchants paid by an AI agent.** The agent's spending mandate lapses silently when the human stops renewing it                                                               | A human heartbeat button, a 30-second polling loop and a WebSocket listener                     | 🔴 `expired` and 🔵 `changed` on the mandate tell the merchant the moment its authority ends                |
 
 None of these needs the app team's permission. Anyone can subscribe to any public entity, today.
 
@@ -105,7 +105,7 @@ flowchart LR
     W -->|"4 · write a receipt"| ARK
     ARK -->|"5 · receipt event"| R["📨 Relay"]
     R -->|"6 · DM"| TG["💬 Telegram"]
-    ARK -.->|"read directly, no middleman"| WEB["🌐 Status page"]
+    ARK -.->|"read through a keyed pass-through<br/>(or the public RPC)"| WEB["🌐 Status page"]
 
     style ARK fill:#ede9fe,stroke:#8b5cf6
     style W fill:#ffedd5,stroke:#f97316
@@ -148,7 +148,7 @@ Every subscription picks exactly one **trigger**:
 **`expired`**
 
 - A **delete is not an expiry**. Use `changed` to hear about deletes.
-- The only trigger that accepts a target that's already gone. If it expired in the last day, the worker finds its real expiry block in the logs and still writes the receipt.
+- The only trigger that accepts a target that's already gone. If its last create or extend was in the last 24 h, the worker finds its real expiry block in the logs and still writes the receipt.
 
 **`changed`**
 
@@ -198,11 +198,11 @@ flowchart TD
 ### Path 1 · No code: Telegram
 
 1. Open **[@prometheus_arkiv_bot](https://t.me/prometheus_arkiv_bot)** and tap **Start**, then **Open Prometheus** (the Mini App).
-2. Tap **Create wallet**. The key is kept in Telegram's secure storage on your device (iOS Keychain / Android Keystore) and never leaves it.
+2. Tap **Create wallet**. On iOS and Android the key is kept in Telegram SecureStorage (Keychain / Keystore); on Telegram Desktop and Web, in Telegram DeviceStorage. It never leaves the device.
 3. Open the wallet menu → **Get free GLM to start**. The relay sends 0.02 testnet GLM, once per Telegram account.
-4. Paste an entity key (or tap **Try a live example**) → **Watch it** → pick what should happen → write a label.
+4. Open the **New** (+) tab, or tap **Try it yourself** on Home. Then: **What should happen** (pick one, **Continue**) → **What to watch** (paste the entity key, **Continue**) → **Timing** (**Continue**) → **Name it and sign** (write a label).
 5. The form checks your choices **against the workers' own code** as you type. When it says _"Workers will accept this subscription."_, tap **Sign and create**.
-6. Tap **Get alerts in Telegram**. The bot replies `✅ Following "<label>"`.
+6. You see **Subscription created**. Tap **Get alerts in Telegram**. The bot replies `✅ Following "<label>"`.
 
 What an alert looks like:
 
@@ -210,10 +210,13 @@ What an alert looks like:
 🟠 EXPIRING SOON · Acme canary
 Block 1234567.
 
-Target:  https://tiramisu.explorer.arkiv.network/entity/0x…
+Status: https://prometheus-arkiv.vercel.app/s/0x…
+Target: https://tiramisu.explorer.arkiv.network/entity/0x…
 Receipt: https://tiramisu.explorer.arkiv.network/entity/0x…
-Tx:      https://tiramisu.explorer.arkiv.network/tx/0x…
+Tx: https://tiramisu.explorer.arkiv.network/tx/0x…
 ```
+
+The **Status** line shows when the relay has `WEB_URL` set.
 
 Bot commands: `/list` (what you follow), `/stop <n>` (unfollow). The bot works in private chats only and **never asks you to sign anything**: a message that does is phishing.
 
@@ -246,7 +249,7 @@ const sub = await prometheus.watch.expiring("0x…entity key…", {
 console.log(sub.telegramUrl); // open it, tap Start, done
 ```
 
-**The SDK refuses to sign anything the workers would silently skip.** Before every `watch` it checks the options, runs the workers' own decoder, confirms the target exists, checks `keep` eligibility, your 20-subscription cap and your GLM balance. All of those reads are free. A failed check throws a `PrometheusError` with a `code` and a sentence you can show a user.
+**The SDK runs the workers' own decoder and checks the target, `keep` eligibility, your 20-subscription cap and your balance before signing.** All of those reads are free. A failed check throws a `PrometheusError` with a `code` and a sentence you can show a user.
 
 <details>
 <summary><b>📘 Full SDK cheat-sheet</b></summary>
@@ -304,7 +307,7 @@ A ready-to-paste `AGENTS.md` / `CLAUDE.md` block is in [For agents](web/docs/for
 
 ## 🏗️ Architecture
 
-Prometheus has **four moving parts** and one source of truth: **Arkiv itself**.
+Prometheus has **five parts** and one source of truth: **Arkiv itself**.
 
 ```mermaid
 flowchart TB
@@ -344,7 +347,7 @@ flowchart TB
     BRW --> Web
     DEV -->|"sign"| SUBS
     Web -->|"sign subscription"| SUBS
-    Web -.->|"read receipts directly"| RCPT
+    Web -.->|"read receipts (via /api/rpc)"| RCPT
 
     WA <-->|"in: blocks + events<br/>out: receipts · renewals · heartbeat"| Chain
     WB <-->|"in: blocks + events<br/>out: receipts · renewals · heartbeat"| Chain
@@ -361,16 +364,16 @@ flowchart TB
     style Web fill:#f0f9ff,stroke:#0ea5e9
 ```
 
-| Part           | Code                | Runs on                      | Job                                                                                        | State                                                  |
-| -------------- | ------------------- | ---------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
-| 🛰️ **Worker**  | [`worker/`](worker) | Docker, 2 hosts in 2 regions | Watch every block, decide triggers, write receipts, renew `keep` targets, prove it's alive | checkpoint, unsent receipts, heartbeat key (files)     |
-| 📨 **Relay**   | [`relay/`](relay)   | Docker, beside worker A      | Turn trusted receipts into Telegram DMs; run the bot; `/health`, `/sponsor`, `/ask`        | SQLite: follows, delivered trigger ids, sponsor claims |
-| 🌐 **Web app** | [`web/`](web)       | Vercel (static)              | Watch form, status pages, my subscriptions, activity, docs; also the Telegram Mini App     | none (reads Arkiv from the browser)                    |
-| 📦 **SDK**     | [`sdk/`](sdk)       | your app                     | Build, validate and sign subscriptions from code                                           | none                                                   |
-| 🧩 **Shared**  | [`shared/`](shared) | imported by all of the above | Schema, the subscription decoder, trigger ids, the replaying event stream, Arkiv clients   | —                                                      |
+| Part           | Code                | Runs on                        | Job                                                                                        | State                                                                             |
+| -------------- | ------------------- | ------------------------------ | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| 🛰️ **Worker**  | [`worker/`](worker) | Docker, 2 hosts in 2 regions   | Watch every block, decide triggers, write receipts, renew `keep` targets, prove it's alive | checkpoint, unsent receipts, heartbeat key (files)                                |
+| 📨 **Relay**   | [`relay/`](relay)   | Docker, beside worker A        | Turn trusted receipts into Telegram DMs; run the bot; `/health`, `/sponsor`, `/ask`        | SQLite: follows, delivered trigger ids, sponsor claims, newsletter emails         |
+| 🌐 **Web app** | [`web/`](web)       | Vercel (static + one function) | Watch form, status pages, my subscriptions, activity, docs; also the Telegram Mini App     | none (reads Arkiv through the keyed pass-through `api/rpc.ts`, or the public RPC) |
+| 📦 **SDK**     | [`sdk/`](sdk)       | your app                       | Build, validate and sign subscriptions from code                                           | none                                                                              |
+| 🧩 **Shared**  | [`shared/`](shared) | imported by all of the above   | Schema, the subscription decoder, trigger ids, the replaying event stream, Arkiv clients   | —                                                                                 |
 
 > [!IMPORTANT]
-> **The same validation code runs everywhere.** [`shared/subscription.ts`](shared/subscription.ts) is the decoder workers use to accept or reject a subscription. The web form and the SDK import the very same function, so "the form said OK" and "the workers will serve it" can never disagree.
+> **The form and the SDK check with the workers' own code.** [`shared/subscription.ts`](shared/subscription.ts) is the decoder workers use to accept or reject a subscription, and the web form imports the very same function. The SDK runs the workers' own decoder and checks the target, keep eligibility, your 20-subscription cap and your balance before signing.
 
 ### Design principles
 
@@ -378,7 +381,7 @@ flowchart TB
 - **Free reads on the hot path.** Per-block work uses `arkiv_getEntity` and `arkiv_getEntityCount`, which were measured free. The paid `arkiv_query` runs only at startup and in an hourly re-sync.
 - **Expiry is the health check.** A worker's heartbeat entity lives 30 minutes and is renewed every 10. If the worker dies, Arkiv deletes the heartbeat for us.
 - **Trust `$creator`, never attributes.** Anyone can write an entity that looks like a receipt. Only the signing wallet, which Arkiv records, decides whether it counts.
-- **Small modules, tested.** Node 24 runs the TypeScript directly (no build step); 32 test files run with the built-in `node --test`.
+- **Small modules, tested.** Node 24 runs the TypeScript directly (no build step); 34 test files (322 tests) run with the built-in `node --test`.
 
 ---
 
@@ -418,7 +421,7 @@ sequenceDiagram
     Note over B: A already acted. B writes nothing.
 ```
 
-If worker A had been down, B would have counted **0** at block 11,515 and written the receipt itself, exactly 15 blocks (30 s) late. The Activity page would show that trigger as **"covered by B"**.
+If worker A had been down, B would have counted **0** at block 11,515 and written the receipt itself, exactly 15 blocks (30 s) late. On the Activity page, worker B's row would count it as a delivery **only by B**, 15 blocks late.
 
 ---
 
@@ -459,7 +462,7 @@ flowchart TD
 **When both write anyway** (A's receipt hadn't landed when B checked), it's harmless:
 
 - **One DM.** The relay dedupes on `trigger_id`.
-- **One renewal.** Both compute the same new expiry; the second extend is a no-op on the node.
+- **One renewal.** Both compute the same new expiry. The second worker re-reads the target first, sees it already renewed, and records `keep_skipped` with `already_extended`; if both send at once, both set the same expiry, so the target is still renewed once.
 - **One cap slot.** The daily alert cap counts per subscription across both workers.
 
 ### Liveness, for free
@@ -573,7 +576,7 @@ Receipts are sent in batches (when 10 are queued or every 5 blocks, at most 50 p
 
 ## 🗄️ Data on Arkiv: the three entities
 
-Every entity Prometheus reads or writes carries `project = "prometheus"`, so every query is scoped.
+Every entity Prometheus writes carries `project = "prometheus"`, so every query is scoped.
 
 ```mermaid
 erDiagram
@@ -619,13 +622,13 @@ erDiagram
 | ------------------ | ----------- | ---------------------- | ------------------------ |
 | `warned`           | `expiring`  | Warning sent           | 🟠 EXPIRING SOON         |
 | `expired`          | `expired`   | Not renewed by block X | 🔴 EXPIRED               |
-| `patched`          | `changed`   | Changed                | 🔵 CHANGED               |
-| `owner_changed`    | `changed`   | Owner changed          | 🔵 OWNER CHANGED         |
-| `deleted`          | `changed`   | Deleted                | 🔴 DELETED               |
-| `matched`          | `new_match` | New matching record    | ✨ NEW MATCH             |
-| `kept`             | `keep`      | Kept alive             | 🟢 RENEWED               |
-| `keep_skipped`     | `keep`      | Renewal skipped        | RENEWAL SKIPPED          |
-| `keep_failed`      | `keep`      | Renewal failed         | 🔴 RENEWAL FAILED        |
+| `patched`          | `changed`   | Changed                | ✏️ CHANGED               |
+| `owner_changed`    | `changed`   | Owner changed          | 👤 OWNER CHANGED         |
+| `deleted`          | `changed`   | Deleted                | 🗑 DELETED                |
+| `matched`          | `new_match` | New matching record    | 🆕 NEW MATCH             |
+| `kept`             | `keep`      | Kept alive             | ✅ RENEWED               |
+| `keep_skipped`     | `keep`      | Renewal skipped        | ⏭ RENEWAL SKIPPED        |
+| `keep_failed`      | `keep`      | Renewal failed         | ⚠️ RENEWAL FAILED        |
 | `keeper_low_funds` | `keep`      | Worker low on funds    | _(operator only, no DM)_ |
 
 **Lateness** = `done_block − trigger_block` (× 2 for seconds). 0–1 block shows as "on time". Worker B's receipts are always ≥ 15 blocks late by design.
@@ -653,6 +656,7 @@ Canonical schema: [`arkiv/schema.md`](arkiv/schema.md) · Every query: [Data con
 | Which Telegram chat follows what | relay's SQLite | relay           | no      |
 | Which triggers were already DM'd | relay's SQLite | relay           | no      |
 | Free GLM claims                  | relay's SQLite | relay           | no      |
+| Newsletter emails                | relay's SQLite | relay           | no      |
 
 | Part    | You trust it to                         | It **can't**                                                                |
 | ------- | --------------------------------------- | --------------------------------------------------------------------------- |
@@ -661,7 +665,7 @@ Canonical schema: [`arkiv/schema.md`](arkiv/schema.md) · Every query: [Data con
 | Relay   | DM every follower                       | write receipts that count, hide receipts from the status page               |
 | Web app | list the right `TRUSTED_WORKERS`        | change anything on Arkiv                                                    |
 
-**Why those "can't"s hold:** your subscription's `$creator` is your wallet; receipts are created `readonly` (deletion is a public event); non-owner renewal requires `permissionlessExtension`; the status page reads Arkiv from your browser; every DM links to its receipt on the explorer.
+**Why those "can't"s hold:** your subscription's `$creator` is your wallet; receipts are created `readonly` (deletion is a public event); non-owner renewal requires `permissionlessExtension`; the status page reads Arkiv through a pass-through that only adds an access key ([`api/rpc.ts`](api/rpc.ts)), or the public RPC; every DM links to its receipt on the explorer.
 
 > [!NOTE]
 > **The walk-away test.** If the Prometheus team disappeared tomorrow, your subscriptions are still public entities you own, and the code is MIT. A new worker finds every subscription with the same query ours uses: no export, no migration. You'd only re-follow in the new relay's bot and use a site that trusts the new workers.
@@ -697,18 +701,18 @@ Every number, with what happens when you hit it: [Limits](web/docs/limits.md).
 
 ## 🌐 The web app
 
-One hash-routed React bundle is **both** the website and the app, and the **same bundle runs as the Telegram Mini App**.
+One path-routed React bundle is **both** the website and the app, and the **same bundle runs as the Telegram Mini App**.
 
-| Route          | Page             | What it does                                                                                                   |
-| -------------- | ---------------- | -------------------------------------------------------------------------------------------------------------- |
-| `/`            | Home             | Paste a key, or try a live example                                                                             |
-| `/new`         | Watch            | The subscription form with a visual search builder; validates live with the workers' decoder                   |
-| `/s/<key>`     | Status           | One subscription and its receipts, read straight from Arkiv (works even if relay and workers are down)         |
-| `/mine`        | My subscriptions | Your wallet's subscriptions: renew, cancel, see "served / not served"                                          |
-| `/activity`    | Activity         | Last 24 h of trusted receipts grouped by trigger: normal / covered by B / delivered twice, worker health, gaps |
-| `/docs/<slug>` | Docs             | Rendered from [`web/docs/*.md`](web/docs), with search and an **Ask AI** panel                                 |
+| Route          | Page             | What it does                                                                                                                                   |
+| -------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`            | Home             | Demo video, plus links to Watch, the SDK and Telegram                                                                                          |
+| `/new`         | Watch            | The subscription form with a visual search builder; validates live with the workers' decoder                                                   |
+| `/s/<key>`     | Status           | One subscription and its receipts, read straight from Arkiv (works even if relay and workers are down)                                         |
+| `/mine`        | My subscriptions | Your wallet's subscriptions: renew, cancel, see "served / not served"                                                                          |
+| `/activity`    | Activity         | Last 24 h of trusted receipts per watched record, missed alerts, and per worker: deliveries, lateness, health (old `/coverage` redirects here) |
+| `/docs/<slug>` | Docs             | Rendered from [`web/docs/*.md`](web/docs), with search and an **Ask AI** panel                                                                 |
 
-**Wallets:** a browser-generated key, MetaMask, or (inside Telegram) a key held in Telegram's secure storage. The site never sees an Arkiv access key: [`vite.config.ts`](vite.config.ts) injects an explicit allow-list of build-time values only.
+**Wallets:** a browser-generated key, MetaMask, or (inside Telegram) a key in Telegram SecureStorage (iOS Keychain / Android Keystore) or, on Telegram Desktop and Web, Telegram DeviceStorage. The browser never sees an Arkiv access key: [`vite.config.ts`](vite.config.ts) injects an explicit allow-list of build-time values only, and reads go through [`api/rpc.ts`](api/rpc.ts), a Vercel function that adds the key on the server. If it fails, reads fall back to the public RPC.
 
 **For agents:** the build emits `/llms.txt`, `/llms-full.txt` and `/docs/<slug>.md`.
 
@@ -739,11 +743,12 @@ flowchart LR
     SP --> ARK
 ```
 
-| Endpoint        | Purpose                                                                                                                |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `GET /health`   | `{ ok, workersAlive: [...] }` from live heartbeats; cached 30 s so it can't drain quota                                |
-| `POST /sponsor` | Sends 0.02 GLM to a new Mini App user; proves a real Telegram user via signed `initData`; one per user and per address |
-| `POST /ask`     | Streams an answer to a docs question; every docs page goes in one system prompt (no retrieval); daily cap; optional    |
+| Endpoint          | Purpose                                                                                                                             |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`     | `{ ok, workersAlive: [...] }` from live heartbeats; cached 30 s so it can't drain quota                                             |
+| `POST /sponsor`   | Sends 0.02 GLM to a new Mini App user; proves a real Telegram user via signed `initData`; one per user and per address              |
+| `POST /ask`       | Streams an answer to a docs question; every docs page goes in one system prompt (no retrieval); daily cap; optional                 |
+| `POST /subscribe` | Adds an email to the newsletter list in the relay's SQLite, never on Arkiv; same reply for new or repeat; 5 tries per IP per 10 min |
 
 Live: `https://134-122-19-189.sslip.io` · Full API: [Network](web/docs/network.md).
 
@@ -837,19 +842,19 @@ flowchart LR
 <details>
 <summary><b>⚙️ Every environment variable</b></summary>
 
-| Variable                                                    | Used by             | Notes                                                                 |
-| ----------------------------------------------------------- | ------------------- | --------------------------------------------------------------------- |
-| `ARKIV_HTTP`, `ARKIV_WS`                                    | all                 | Tiramisu RPC (`https://` / `wss://`)                                  |
-| `TRUSTED_WORKERS`                                           | workers, relay, web | Comma-separated; must include the worker's own address; primary first |
-| `ARKIV_ACCESS_KEY`                                          | workers, relay      | `X-API-KEY` header; **never** shipped to the browser                  |
-| `WORKER_PRIVATE_KEY`                                        | worker              | One key per running worker (two processes on one key race nonces)     |
-| `WORKER_DELAY_BLOCKS`                                       | worker              | `0` primary, `15` backup, ≥ `20` for a third worker                   |
-| `SPONSOR_PRIVATE_KEY`, `TELEGRAM_BOT_TOKEN`                 | relay               | Sponsor wallet is separate so it can't starve worker gas              |
-| `RELAY_DB_PATH`, `PORT`                                     | relay               | Default `state/relay.db`, `8080`                                      |
-| `WEB_URL`                                                   | relay, seed, web    | Bot menu button, alert Status links, `llms.txt` URLs                  |
-| `OPENROUTER_API_KEY`, `ASK_MODELS`, `ASK_DAILY_CAP`         | relay               | Optional docs assistant (default cap 45/day)                          |
-| `DEMO_PUBLISHER_PRIVATE_KEY`, `DEMO_SUBSCRIBER_PRIVATE_KEY` | seed                | Demo wallets                                                          |
-| `VITE_BOT_NAME`, `RELAY_PUBLIC_URL`                         | web build           | Bot name; relay URL enables free GLM in the Mini App                  |
+| Variable                                                    | Used by                   | Notes                                                                 |
+| ----------------------------------------------------------- | ------------------------- | --------------------------------------------------------------------- |
+| `ARKIV_HTTP`, `ARKIV_WS`                                    | all                       | Tiramisu RPC (`https://` / `wss://`)                                  |
+| `TRUSTED_WORKERS`                                           | workers, relay, web       | Comma-separated; must include the worker's own address; primary first |
+| `ARKIV_ACCESS_KEY`                                          | workers, relay, web proxy | `X-API-KEY` header; **never** shipped to the browser                  |
+| `WORKER_PRIVATE_KEY`                                        | worker                    | One key per running worker (two processes on one key race nonces)     |
+| `WORKER_DELAY_BLOCKS`                                       | worker                    | `0` primary, `15` backup, ≥ `20` for a third worker                   |
+| `SPONSOR_PRIVATE_KEY`, `TELEGRAM_BOT_TOKEN`                 | relay                     | Sponsor wallet is separate so it can't starve worker gas              |
+| `RELAY_DB_PATH`, `PORT`                                     | relay                     | Default `state/relay.db`, `8080`                                      |
+| `WEB_URL`                                                   | relay, seed, web          | Bot menu button, alert Status links, `llms.txt` URLs                  |
+| `OPENROUTER_API_KEY`, `ASK_MODELS`, `ASK_DAILY_CAP`         | relay                     | Optional docs assistant (default cap 45/day)                          |
+| `DEMO_PUBLISHER_PRIVATE_KEY`, `DEMO_SUBSCRIBER_PRIVATE_KEY` | seed                      | Demo wallets                                                          |
+| `VITE_BOT_NAME`, `RELAY_PUBLIC_URL`                         | web build                 | Bot name; relay URL enables free GLM in the Mini App                  |
 
 The config loader lists every problem at once and **never prints values**.
 
@@ -921,20 +926,20 @@ To update: rebuild, `docker rm -f worker-b`, run again. Deploy the **same commit
 
 ### Web app
 
-Vercel picks up [`vercel.json`](vercel.json): `npm ci` → `npm run web:build` → `web/dist`. Set `TRUSTED_WORKERS`, `WEB_URL`, `RELAY_PUBLIC_URL` and `VITE_BOT_NAME` as build env.
+Vercel picks up [`vercel.json`](vercel.json): `npm ci` → `npm run web:build` → `web/dist`. Set `TRUSTED_WORKERS`, `WEB_URL`, `RELAY_PUBLIC_URL` and `VITE_BOT_NAME` as build env, and `ARKIV_ACCESS_KEY` as runtime env for `/api/rpc`.
 
 ---
 
 ## 🛰️ Run your own worker
 
-Anyone can. The short version:
+Anyone can. You need a key, some GLM and a few settings (see the guide). The short version:
 
 ```bash
 # 1. a key written straight to file, never printed
 node -e 'const k="0x"+require("crypto").randomBytes(32).toString("hex");require("fs").appendFileSync(".env.worker-a",`WORKER_PRIVATE_KEY=${k}\n`)'
 chmod 600 .env.worker-a
 
-# 2. fund its address with GLM (faucet → MetaMask → send), then:
+# 2. fund its address with GLM (paste its address into the faucet's Send to), then:
 echo "WORKER_DELAY_BLOCKS=20" >> .env.worker-a     # a third worker behind A and B
 # add your address to TRUSTED_WORKERS in .env
 
@@ -968,12 +973,12 @@ Every receipt key and the queries to verify them yourself: [`arkiv/submission.md
 
 We logged every friction point with evidence in [`arkiv/friction.md`](arkiv/friction.md) (also on the site as the [Friction report](web/docs/friction-report.md)):
 
-1. The SDK's `getEntity` is a **paid** query, while the free `arkiv_getEntity` RPC isn't exposed.
-2. `eth_getLogs` is capped by **block range**, not result count.
-3. The faucet **can't fund a server key** (browser wallet + CAPTCHA only).
+1. The SDK's `getEntity` is a **paid** query, while the free `arkiv_getEntity` RPC isn't wrapped by the SDK.
+2. `eth_getLogs` has **two caps** (100,000 blocks and 20,000 results) behind one error code, `-32602`.
+3. The faucet funds the **signed-in wallet** unless you change **Send to**, and has no documented API.
 4. A filtered count needs the raw RPC: the SDK's `getEntityCount()` takes no query.
-5. `arkiv_getEntityCount` **ignores `atBlock`**.
-6. Live events **can't use the access key** (WebSocket has no headers) and need their own catch-up.
+5. `arkiv_getEntityCount` takes past blocks as `block` (a number) and **silently ignores** `atBlock` and other unknown fields.
+6. Live events have **no filter and no backfill**, and an access key in the WebSocket URL leaks into viem's error messages.
 7. The Tiramisu chain definition has **no `blockTime`**.
 
 `npm run probe` re-measures the assumptions the design rests on.
@@ -1005,7 +1010,7 @@ We'd rather you hear these from us. Found by our own audit on 17 Oct; Arkiv-side
 - **RL-7:** Alert DMs are sent at most once. A DM still waiting when the relay crashes, or still backing off at the 5 s shutdown limit, or failing for about 8.5 minutes while Telegram is down, is not resent. Receipts on Arkiv and the Status page are unaffected.
 - **RL-9:** A `keep_skipped(budget)` DM can be followed by a RENEWED DM from the other worker.
 - **RL-10:** Follows from chats that blocked the bot stay until `/stop`; each DM to them fails fast and is dropped.
-- **RL-11 / WB-27:** `relay/deliver.ts` (about 300 lines) and the web view (`.tsx`) files exceed the 200-line rule; the web's logic lives in ≤200-line `.ts` modules with tests.
+- **RL-11 / WB-27:** `relay/deliver.ts` (about 300 lines) and the web view (`.tsx`) files exceed the 200-line rule, and several worker/shared modules exceed it (largest: `worker/receipts.ts`, 414 lines); the web's logic lives in ≤200-line `.ts` modules with tests.
 
 </details>
 
@@ -1048,14 +1053,14 @@ No. Any live Arkiv entity works. Only `keep` has an extra requirement: the entit
 <details>
 <summary><b>Does Prometheus hold my keys or my data?</b></summary>
 
-No. You sign your subscription with your own wallet; it's a public entity you own. The relay stores only which Telegram chat follows which subscription key.
+No. You sign your subscription with your own wallet; it's a public entity you own. The relay stores which Telegram chat follows which subscription, which alerts it already sent, free-GLM claims (Telegram user id and wallet address) and newsletter emails. None of it goes on chain.
 
 </details>
 
 <details>
 <summary><b>What does it cost?</b></summary>
 
-The gas to create a subscription (a fraction of a cent of testnet GLM; the Mini App gives you 0.02 GLM free). Workers pay for receipts and renewals.
+The gas to create a subscription: a tiny amount of testnet GLM (no real value). The Mini App gives you 0.02 GLM free. Workers pay for receipts and renewals.
 
 </details>
 
@@ -1069,7 +1074,7 @@ Worker B covers it 30 seconds later, automatically. The receipt's lateness and t
 <details>
 <summary><b>What if the relay goes down?</b></summary>
 
-Telegram DMs pause. Workers keep writing receipts, and the status page (which reads Arkiv directly) keeps working.
+Telegram DMs pause. Workers keep writing receipts, and the status page (which reads Arkiv, not the relay) keeps working.
 
 </details>
 

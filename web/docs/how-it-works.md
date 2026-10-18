@@ -90,7 +90,7 @@ Say you want a warning 10 minutes before an entity expires. Its expiry block is 
 5. **The relay delivers it.** The relay reads the receipt (a free call), checks that its creator is a trusted worker, records the trigger id as delivered, and sends a DM to everyone following your subscription. The DM links to the target and the receipt on the explorer.
 6. **Block 11,515: worker B checks.** B's 15-block wait is over. It counts trusted receipts with the same trigger id: 1. B writes nothing.
 
-If worker A had been down, B would have counted 0 at block 11,515 and written the receipt itself, 15 blocks (30 seconds) late. The Coverage page would show that trigger as "covered by B".
+If worker A had been down, B would have counted 0 at block 11,515 and written the receipt itself, 15 blocks (30 seconds) late. On the Activity page, under the hood, it would count as delivered only by B.
 
 ## Next
 

@@ -53,7 +53,7 @@ Sometimes both workers write a receipt for the same trigger. That happens when A
 It's harmless:
 
 - **One DM.** The relay records each `trigger_id` it has delivered and sends one message per trigger, whichever worker's receipt arrives first.
-- **One renewal.** For `keep`, both workers compute the same new expiry block. The second renewal sets the same expiry, which the node treats as a no-op: it costs gas but doesn't extend twice.
+- **One renewal.** For `keep`, both workers compute the same new expiry block. The second worker re-reads the target first, sees it already renewed, and records `keep_skipped` with note `already_extended`. If both send at once, both set the same expiry, so the target is still renewed once.
 
 After a failed send, a worker waits at least 10 seconds before it checks again and resends, so a receipt that did go out can be indexed first. That's inside B's 30-second window.
 
@@ -61,40 +61,36 @@ After a failed send, a worker waits at least 10 seconds before it checks again a
 
 Each worker proves it's alive with a `worker` entity on Arkiv.
 
-| Attribute      | Type | Value                                     |
-| -------------- | ---- | ----------------------------------------- |
-| `project`      | str  | `prometheus`                              |
-| `kind`         | str  | `worker`                                  |
-| `version`      | str  | `0.1.0`                                   |
-| `operator`     | str  | a label only; trust comes from `$creator` |
-| `delay_blocks` | u64  | `0` for A, `15` for B                     |
+| Attribute      | Type | Value                                                              |
+| -------------- | ---- | ------------------------------------------------------------------ |
+| `project`      | str  | `prometheus`                                                       |
+| `kind`         | str  | `worker`                                                           |
+| `version`      | str  | the deployed git commit (`GIT_SHA`), e.g. `9182ae9`; `dev` locally |
+| `operator`     | str  | a label only; trust comes from `$creator`                          |
+| `delay_blocks` | u64  | `0` for A, `15` for B                                              |
 
 - **Lifetime:** 30 minutes. Every 10 minutes, the worker renews it to 30 minutes from now.
 - **Why that works:** expiry is the health check. Three renewals fit in one lifetime, so the entity survives two missed renewals. If the worker stops, it stops renewing, and Arkiv deletes the entity within 30 minutes. This needs no extra code.
-- **How it's read:** a free count of `worker` entities whose `$creator` is that worker's address. The relay and the Coverage page both use it.
-- **On restart:** the worker reuses its saved entity and renews it at once. If the entity lapsed while the worker was down, it creates a new one.
+- **How it's read:** a free count of `worker` entities whose `$creator` is that worker's address. The relay and the Activity page both use it.
+- **On restart:** the worker reuses its saved entity and renews it at once, but only if the entity is still live and the commit is unchanged. Otherwise (it lapsed while the worker was down, or the worker was redeployed) it creates a new one.
 
 Because of the 30-minute lifetime, a worker that just stopped can still show as live for up to 30 minutes.
 
-## What the Coverage page shows
+## What the Activity page shows
 
-Open `<site>/activity`. Your browser reads the last 24 hours (43,200 blocks) of trusted receipts from Arkiv and groups them by `trigger_id`. Every number on the page comes from those receipts, so you can check it yourself.
+Open `<site>/activity`. Your browser reads the last 24 hours (43,200 blocks) of trusted receipts from Arkiv and groups them by `trigger_id`, so a trigger both workers wrote counts once. Every number on the page comes from those receipts, so you can check it yourself.
 
-Each trigger gets one status:
+From top to bottom:
 
-| Status          | Receipts it has      | What it means                                   |
-| --------------- | -------------------- | ----------------------------------------------- |
-| normal          | worker A's only      | A acted, and B stepped back                     |
-| covered by B    | worker B's only      | A missed it, and B covered: a failover          |
-| delivered twice | one from each worker | both acted; harmless, and the relay sent one DM |
+- **A status badge:** "Running" while at least one worker's heartbeat is live, "Delivery is down" when none is.
+- **A one-line summary** of the last day, such as "In the last day we sent 14 expiry warnings. Nothing missed.", and how soon each one usually lands after the change on chain.
+- **Missed:** `expired` subscriptions whose target is gone with no trusted `expired` receipt. A target that expired in the last minute can show here until its receipt lands.
+- **Watched records:** one row per subscription, with its label, what last happened and when, how many times in the last day, and a "Proof" link to its latest receipt on the explorer. Demo subscriptions are tagged "Demo" and listed last.
+- **Under the hood** (folded): one row per worker, with live or offline (from its heartbeat), how many triggers it delivered, how many only it delivered, its typical (median) and largest lateness in blocks, its address, and "Low on funds" if it wrote a `keeper_low_funds` receipt.
 
 `keeper_low_funds` and `keep_skipped` with note `budget` aren't counted as deliveries. They describe one worker, not a trigger.
 
-The page also shows:
-
-- **Each worker:** live or offline (from its heartbeat), how many triggers it delivered, how many only it delivered, its typical (median) and largest lateness, and "Low on funds" if it wrote a `keeper_low_funds` receipt.
-- **A headline** when a worker is down, such as "A offline · 3 covered by B", or "B offline · no failover backup".
-- **Gaps:** `expired` subscriptions whose target is gone with no trusted `expired` receipt. A target that expired in the last minute can show here until its receipt lands.
+A failover shows under the hood: while A is down, B's "only by B" count goes up, and each of those receipts is at least 15 blocks late.
 
 ## Startup and replay
 
@@ -104,7 +100,7 @@ On start, a worker:
 
 1. **Loads its checkpoint:** the last block it fully handled. On first boot there's none, so it starts 1,800 blocks (1 hour) back.
 2. **Discovers subscriptions** with a paged query, then reads and checks each one.
-3. **Builds the expiry schedule** with one free read per watched entity. For an entity that's gone, it searches the last 43,200 blocks (1 day) of that entity's logs for its real expiry block. That way `expired` gets the same trigger id the other worker uses. Subscriptions other than `expired` whose target isn't live are dropped.
+3. **Builds the expiry schedule** with one free read per watched entity. For an entity that's gone, it searches the last 43,200 blocks (1 day) of that entity's logs for its real expiry block. That way `expired` gets the same trigger id the other worker uses. Subscriptions other than `expired` whose target isn't live are dropped, except `changed` ones: they wait for the catch-up, which may still hold the target's deletion, and the hourly re-sync drops them.
 4. **Resumes unsent receipts** from its file, skipping any that already landed on Arkiv.
 5. **Rebuilds today's alert counts** from trusted receipts on Arkiv, so a restart doesn't reset `max_per_day`.
 6. **Connects and catches up:** subscribes to the live stream first, waits for its first block, replays every event from the checkpoint to the newest block, then goes live. See [How it works](./how-it-works.md).
@@ -114,7 +110,7 @@ The worker doesn't rebuild its list of triggers already handled. After a restart
 
 On a graceful stop, a worker gives itself up to 5 seconds to send its last receipts and save its checkpoint. A hard stop is still safe: the next start resends whatever the file holds.
 
-**Known limit:** if a worker is down for more than 1 day, a target that expired in that time gets no `expired` receipt from it.
+**Known limit:** after a restart, `expired` is written only if the target's last create or extend was in the last day.
 
 ## Next
 

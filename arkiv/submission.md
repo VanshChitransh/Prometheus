@@ -14,7 +14,7 @@ Everything here can be checked by anyone against the Tiramisu testnet. Wallet ro
 
 - **Expiry as a primitive.** The thing we watch (expiring entities) and our own liveness (a 30-minute heartbeat entity) both run on it. If a worker dies, Arkiv deletes its heartbeat for us.
 - **`$creator` as proof.** The user signs their subscription, so we can't forge one. Workers sign receipts, so anyone can check who delivered and whether a trigger was covered twice.
-- **Queryable attributes with no indexer.** Workers find subscriptions, and check for each other's receipts, with free `arkiv_getEntityCount` calls. The web app reads Arkiv straight from the browser, so status pages still work with our backend down.
+- **Queryable attributes with no indexer.** Workers spot new subscriptions, and check each other's receipts, with free counts (startup and hourly discovery use a paid `arkiv_query`). The web app reads Arkiv from the browser (through a keyed proxy, falling back to the public RPC), so status pages still work with our backend down.
 
 **What stays off Arkiv, and why**
 
@@ -39,10 +39,12 @@ Created 18 Oct 2026 by `npm run watch-others` ([scripts/watch-others.ts](../scri
 |                                                                                                        | Gate CRO deposit halt closed         | `changed`                                                          | `0x4bf337a71677a570c38e0172647ed98cdf6019dbe810a218789b681be9f13437` |
 | [Arkiv Canary](https://gitlab.com/davidj-builds/arkiv-canary): warrant canaries                        | Example Mail Co. dies in 1 h         | `expiring`, lead 1,800 blocks                                      | `0x3a3aab7673ba0a62e12946b38ca5a5675c809fb6a2ad63373eb5cd95d23476e2` |
 |                                                                                                        | Example Mail Co. died                | `expired`                                                          | `0xffed7354489c40e6becfa077245d912bc06e0c6caf7ddfbefae2737990f4299d` |
-|                                                                                                        | Example Mail Co. renewed             | `changed` (a renewal patches `due_at`)                             | `0xfcca7bc7966a80734038c185cdfb66dfe71990a8dda5ddf9c064d1316c71faca` |
+|                                                                                                        | Example Mail Co. renewed             | `changed` (a renewal patches `renewed_at` and `seq`)               | `0xfcca7bc7966a80734038c185cdfb66dfe71990a8dda5ddf9c064d1316c71faca` |
 |                                                                                                        | arkiv-canary.sites.tab.bot died      | `expired`                                                          | `0x63b8028a277ad0d199a053719c512be5d1983acfc3c5297ee562e8a23ec3c6f1` |
 |                                                                                                        | New canary published                 | `new_match` on `app = arkiv-canary, type = canary`                 | `0x51d773d73a209ab71ec8300c90bfe9dafabc61a58116dfbfb362c38419337ebb` |
 | [Switched Off](https://github.com/RohanGlitched/switched-off): Indian internet shutdown orders         | New shutdown order (drills left out) | `new_match` on `app = switched-off, type = record, net = live`     | `0xde809dfaf351e65b53f251bed109ad37f420f7008ed5ea1f383f1aaa1a938652` |
+
+One has already fired: when Door Ledger closed the Gate ABS deposit halt, worker A wrote a `deleted` receipt (`0x57f69e7816550fbb7b6272c109cbed5d63afbc63dd09c5cf400b5497e9b3724e`, block 736073).
 
 See any of them at `https://prometheus-arkiv.vercel.app/s/<key>`; once one fires, its receipts appear there and on the Activity page. Receipts for one: `project = str('prometheus') AND kind = str('receipt') AND subscription = key(<key>)`.
 
