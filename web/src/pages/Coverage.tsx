@@ -148,7 +148,8 @@ export function Coverage() {
         <Summary rows={d.rows} missed={gaps.data?.length} />
       )}
 
-      {gaps.error ? (
+      {/* Both reads hit the same node: one error line is enough. */}
+      {gaps.error && !data.error ? (
         <ErrorText error={gaps.error} />
       ) : (
         !!gaps.data?.length && (
