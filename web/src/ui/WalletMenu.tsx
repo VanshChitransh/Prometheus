@@ -24,6 +24,7 @@ import {
   glm,
   requestSponsor,
   storedKey,
+  switchMetaMask,
   useLocalKey,
 } from "../wallet.ts";
 import {
@@ -200,9 +201,10 @@ export function WalletMenu() {
 }
 
 function Connected() {
-  const { wallet, disconnect } = useWallet();
+  const { wallet, connect, disconnect } = useWallet();
   const w = wallet!;
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<unknown>();
   useOpenRequest(useCallback(() => setOpen(true), []));
   const bal = useLoad(() => balance(w.address), [w.address]);
   const low = bal.data !== undefined && bal.data < NEEDS_GLM;
@@ -292,6 +294,25 @@ function Connected() {
           {/* Telegram has one wallet per user: nothing to switch to. */}
           {!tg && (
             <div className="mt-3 flex justify-center gap-4 text-[13px] font-medium">
+              {w.kind === "metamask" && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setError(undefined);
+                    try {
+                      // MetaMask won't show its picker to a site it already trusts; this forces it.
+                      const next = await switchMetaMask();
+                      await connect(() => next);
+                    } catch (e) {
+                      // 4001: the user closed the picker. Not an error.
+                      if ((e as { code?: number }).code !== 4001) setError(e);
+                    }
+                  }}
+                  className="cursor-pointer text-accent hover:opacity-75"
+                >
+                  Switch account
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -311,6 +332,7 @@ function Connected() {
               </button>
             </div>
           )}
+          {error !== undefined && <ErrorText error={error} className="mt-2" />}
         </div>
       </Popover>
     </div>
