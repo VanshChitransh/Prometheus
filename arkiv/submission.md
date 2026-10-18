@@ -88,3 +88,11 @@ Free counts (`arkiv_getEntityCount`), using the queries in [schema.md](schema.md
 - Who wrote a receipt: `arkiv_getEntity <receipt key>` → `creator`.
 - No duplicate for a trigger: `project = str('prometheus') AND kind = str('receipt') AND trigger_id = bytes32(<id>) AND ($creator = addr(<A>) OR $creator = addr(<B>))` returns 1.
 - Lateness: the receipt's `done_block − trigger_block`.
+
+## What's next
+
+Three steps toward the full Hub wishlist item. Details in the [README](../README.md#-whats-next).
+
+- **Webhooks:** apps get the receipt key at their own URL and react in code, after checking the receipt's `$creator` on Arkiv.
+- **An open worker network:** anyone can join as a worker, scored by its on time receipts on Arkiv, and later paid in GLM per receipt.
+- **Value triggers:** alert only when an attribute hits a value you pick.
