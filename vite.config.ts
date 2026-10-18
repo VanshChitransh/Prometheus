@@ -6,9 +6,9 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import { DOCS_NAV, splitFront } from "./web/src/docsMeta.ts";
 
-// Files for agents, written from web/docs and web/blog: /llms.txt (the index, llmstxt.org format),
-// /llms-full.txt (every docs page in one file), and each page's raw Markdown at /docs/<slug>.md and
-// /blog/<slug>.md. Served from memory in dev, emitted as assets at build.
+// Files for agents, written from web/docs: /llms.txt (the index, llmstxt.org format),
+// /llms-full.txt (every docs page in one file), and each page's raw Markdown at /docs/<slug>.md.
+// Served from memory in dev, emitted as assets at build.
 function agentFiles(site: string): Plugin {
   const read = (dir: string) => {
     const full = path.resolve("web", dir);
@@ -25,12 +25,8 @@ function agentFiles(site: string): Plugin {
   };
   const files = () => {
     const docs = read("docs");
-    const posts = read("blog").sort((a, b) =>
-      a.front.date < b.front.date ? 1 : -1,
-    );
     const out = new Map<string, string>();
     for (const d of docs) out.set(`docs/${d.slug}.md`, d.raw);
-    for (const p of posts) out.set(`blog/${p.slug}.md`, p.raw);
     const bySlug = new Map(docs.map((d) => [d.slug, d]));
     const index = [
       "# Prometheus",
@@ -55,17 +51,6 @@ function agentFiles(site: string): Plugin {
             ]
           : [];
       }),
-      ...(posts.length
-        ? [
-            "## Blog",
-            "",
-            ...posts.map(
-              (p) =>
-                `- [${p.front.title}](${site}/blog/${p.slug}.md): ${p.front.dek}`,
-            ),
-            "",
-          ]
-        : []),
     ].join("\n");
     out.set("llms.txt", index);
     const ordered = DOCS_NAV.flatMap((s) => s.pages)
