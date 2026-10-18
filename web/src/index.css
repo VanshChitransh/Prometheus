@@ -65,6 +65,7 @@
 
   --animate-shimmer: shimmer 1.4s linear infinite;
   --animate-blink: blink 1.6s ease-in-out infinite;
+  --animate-live: live 2s cubic-bezier(0, 0, 0.2, 1) infinite; /* the "Live" dot's ring (Home.tsx) */
   --animate-shake: shake 320ms ease-out; /* a bad submit shakes the field once (bencho form-error) */
 
   @keyframes shimmer {
@@ -89,6 +90,17 @@
   @keyframes blink {
     50% {
       opacity: 0.25;
+    }
+  }
+  /* A ring leaves the dot and fades as it grows: the radar ping every "live" indicator uses. */
+  @keyframes live {
+    from {
+      transform: scale(1);
+      opacity: 0.55;
+    }
+    to {
+      transform: scale(3.2);
+      opacity: 0;
     }
   }
 }
