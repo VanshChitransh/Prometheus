@@ -1,6 +1,13 @@
 // #/: the website's front page (planning/HOME_COPY.md). For a first-time visitor: what Arkiv lacks,
 // how Prometheus fixes it, and how to start. Live numbers are free counts read from Arkiv.
-import { ArrowRight, ArrowUpRight, Package, Plus } from "lucide-react";
+import {
+  ArrowRight,
+  ArrowUpRight,
+  Check,
+  Mail,
+  Package,
+  Plus,
+} from "lucide-react";
 import {
   animate,
   useMotionValue,
@@ -12,12 +19,21 @@ import { freeCount, trustedFilter } from "../../../shared/arkiv.ts";
 import { PROJECT, type Trigger } from "../../../shared/schema.ts";
 import { EXPLORER, TRUSTED } from "../receipts.ts";
 import { telegramClick } from "../telegram.ts";
-import { cx, LinkButton, num, Spark, useLoad } from "../ui/kit.tsx";
+import {
+  Button,
+  cx,
+  ErrorText,
+  LinkButton,
+  num,
+  Spark,
+  useLoad,
+} from "../ui/kit.tsx";
 import { WayScene } from "../ui/WayScene.tsx";
 import { reader } from "../wallet.ts";
 import { liveness } from "./Coverage.tsx";
 
 declare const __BOT_NAME__: string; // vite.config.ts
+declare const __RELAY_URL__: string; // vite.config.ts; "" = no relay, so no newsletter form
 export const BOT = `https://t.me/${__BOT_NAME__ || "prometheus_arkiv_bot"}`;
 
 // The framed column every section sits in (agenttrust's hairline rails).
@@ -77,6 +93,7 @@ export function Home() {
       <Trust />
       <Start />
       <Questions />
+      <Subscribe />
     </div>
   );
 }
@@ -951,6 +968,96 @@ function Questions() {
             </details>
           ))}
         </div>
+      </Frame>
+    </section>
+  );
+}
+
+// --- 8. Newsletter (relay POST /subscribe; the address stays in its SQLite, never on Arkiv) ---
+
+const SUBSCRIBE_URL = __RELAY_URL__
+  ? `${__RELAY_URL__.replace(/\/$/, "")}/subscribe`
+  : "";
+
+function Subscribe() {
+  const [email, setEmail] = useState("");
+  const [state, setState] = useState<"idle" | "sending" | "done">("idle");
+  const [error, setError] = useState<string>();
+  if (!SUBSCRIBE_URL) return null;
+
+  const send = async (e: React.FormEvent) => {
+    e.preventDefault(); // the browser already checked type="email" before this runs
+    setState("sending");
+    setError(undefined);
+    try {
+      const r = await fetch(SUBSCRIBE_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      if (r.ok) return setState("done");
+      const body = (await r.json().catch(() => ({}))) as { error?: string };
+      setError(body.error ?? "That didn't go through. Try again.");
+    } catch {
+      setError("Couldn't reach the server. Try again.");
+    }
+    setState("idle");
+  };
+
+  return (
+    <section className="border-t border-sep">
+      <Frame className="grid grid-cols-1 gap-10 px-5 py-20 sm:px-10 lg:grid-cols-[1fr_1.6fr] lg:items-end lg:py-28">
+        <div>
+          <Eyebrow>Newsletter</Eyebrow>
+          <H2 className="mt-5 max-w-[16ch]">Subscribe to Prometheus notes.</H2>
+          <p className="mt-4 max-w-[46ch] text-[17px] leading-[1.55] text-ink-2">
+            New triggers, SDK releases and what we learn running workers on
+            Arkiv.
+          </p>
+        </div>
+        {state === "done" ? (
+          <p className="flex items-center gap-2 text-[16px] font-medium">
+            <Check className="size-5 text-ok" /> You're on the list. Thanks.
+          </p>
+        ) : (
+          <form onSubmit={send}>
+            <label
+              htmlFor="newsletter-email"
+              className="font-mono text-[12px] tracking-[0.06em] text-ink-3 uppercase"
+            >
+              Email
+            </label>
+            <div className="mt-2 flex flex-col gap-3 sm:flex-row">
+              <input
+                id="newsletter-email"
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="h-12 w-full min-w-0 rounded-full sm:flex-1 bg-page px-5 text-[16px] shadow-[inset_0_0_0_1px_var(--sep)] transition-shadow outline-none placeholder:text-ink-3 focus:shadow-[inset_0_0_0_2px_var(--accent)]"
+              />
+              <Button
+                type="submit"
+                size="lg"
+                variant="secondary"
+                disabled={state === "sending"}
+                className="rounded-full font-mono text-[14px] tracking-[0.04em] uppercase"
+              >
+                <Mail className="size-4" />
+                {state === "sending" ? "Subscribing…" : "Subscribe"}
+              </Button>
+            </div>
+            <div className="mt-3 min-h-5 text-[13px] text-ink-2">
+              {error ? (
+                <ErrorText error={error} />
+              ) : (
+                "A short note when something ships. No spam, and we never put your email on chain."
+              )}
+            </div>
+          </form>
+        )}
       </Frame>
     </section>
   );

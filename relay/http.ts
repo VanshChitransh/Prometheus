@@ -1,4 +1,5 @@
-// The relay's HTTP API (LLD §6.2): GET /health, POST /sponsor and POST /ask (docs chat). Node only.
+// The relay's HTTP API (LLD §6.2): GET /health, POST /sponsor, POST /ask (docs chat) and
+// POST /subscribe (newsletter). Node only.
 // A request handler, not a server: index.ts listens, tests mount it on a throwaway port.
 import type {
   IncomingMessage,
@@ -6,6 +7,7 @@ import type {
   ServerResponse,
 } from "node:http";
 import type { AskReply } from "./ask.ts";
+import type { SubscribeReply } from "./newsletter.ts";
 import type { SponsorReply } from "./sponsor.ts";
 
 const MAX_BODY = 8_192; // bytes; a /sponsor body is ~1 KB
@@ -43,6 +45,7 @@ export function createHttpHandler(o: {
   sponsor: (body: unknown) => Promise<SponsorReply>;
   workersAlive: () => Promise<string[]>;
   ask?: (body: unknown, ip: string, signal: AbortSignal) => AskReply; // unset = /ask is off
+  subscribe?: (body: unknown, ip: string) => SubscribeReply; // unset = /subscribe is off
   now?: () => number; // ms, like Date.now; tests pass a fake clock
 }): RequestListener {
   const now = o.now ?? Date.now;
@@ -119,6 +122,13 @@ export function createHttpHandler(o: {
       const r = o.ask(b.ok, clientIp(req), ac.signal);
       if (!("stream" in r)) return json(r.status, r.body);
       return sse(res, r.stream, ac.signal);
+    }
+    if (req.method === "POST" && path === "/subscribe") {
+      if (!o.subscribe) return json(503, { error: "Sign-ups are off." });
+      const b = await body();
+      if (!b) return;
+      const r = o.subscribe(b.ok, clientIp(req));
+      return json(r.status, r.body);
     }
     if (req.method === "GET" && path === "/health")
       return json(200, { ok: true, workersAlive: await workersAlive() });
