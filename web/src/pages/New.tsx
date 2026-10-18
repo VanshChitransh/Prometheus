@@ -1,4 +1,4 @@
-// #/new (T4.2, LLD §7): a subscription signed by the user's own wallet. Everything the worker would
+// /new (T4.2, LLD §7): a subscription signed by the user's own wallet. Everything the worker would
 // reject is caught here first, with the worker's own reason, before anything is signed.
 import {
   ArrowRight,
@@ -783,7 +783,7 @@ function Created({ entityKey, label }: { entityKey: Hex; label: string }) {
               Telegram alerts aren't set up for this site.
             </p>
           )}
-          <LinkButton href={`#/s/${entityKey}`} variant="secondary" size="lg">
+          <LinkButton href={`/s/${entityKey}`} variant="secondary" size="lg">
             Open its status
           </LinkButton>
         </div>

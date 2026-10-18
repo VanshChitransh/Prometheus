@@ -157,7 +157,7 @@ for (const s of subs)
     [
       s.label,
       s.key,
-      `${web}/#/s/${s.key}`,
+      `${web}/s/${s.key}`,
       bot
         ? `https://t.me/${bot}?start=${encodeKey(s.key)}`
         : "(set VITE_BOT_NAME)",

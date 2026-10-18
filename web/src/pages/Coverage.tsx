@@ -1,4 +1,4 @@
-// #/coverage, "Activity" (T4.6, LLD §7): what fired in the last day and the on-chain proof of each,
+// /coverage, "Activity" (T4.6, LLD §7): what fired in the last day and the on-chain proof of each,
 // read straight from Arkiv. Clients see one feed; which worker delivered it is folded away for the
 // operator. Each section loads on its own, so a rate-limited query blanks only its section.
 import { u64 } from "@arkiv-network/sdk/attr";
@@ -160,7 +160,7 @@ export function Coverage() {
             {gaps.data.map((s) => (
               <Row key={s.key} className="justify-between">
                 <a
-                  href={`#/s/${s.key}`}
+                  href={`/s/${s.key}`}
                   className="font-medium hover:text-accent"
                 >
                   {s.label || "Untitled"}
@@ -380,7 +380,7 @@ function SubRow({
       <EventGlyph event={s.latest.event} />
       <div className="min-w-0 flex-1">
         <a
-          href={`#/s/${s.subscription}`}
+          href={`/s/${s.subscription}`}
           className="block truncate font-medium hover:text-accent"
         >
           {label}

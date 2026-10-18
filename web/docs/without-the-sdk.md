@@ -280,11 +280,11 @@ The draft check can't see the types you pass to `createEntity`. It confirms the 
 
 ### In the web app
 
-Enter the same values in the form at `<site>/#/new`. It runs `decodeSubscription` as you type and shows the workers' reason in plain words. You don't have to sign anything. For `new_match`, the form builds the search from an example entity rather than from your JSON.
+Enter the same values in the form at `<site>/new`. It runs `decodeSubscription` as you type and shows the workers' reason in plain words. You don't have to sign anything. For `new_match`, the form builds the search from an example entity rather than from your JSON.
 
 ### After you sign
 
-Open `<site>/#/s/<subscriptionKey>`. If workers reject the subscription, the page says "This isn't a valid Prometheus subscription:" followed by the reason. Cancel it, fix it and create it again.
+Open `<site>/s/<subscriptionKey>`. If workers reject the subscription, the page says "This isn't a valid Prometheus subscription:" followed by the reason. Cancel it, fix it and create it again.
 
 ### Rejection reasons
 

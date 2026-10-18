@@ -2,6 +2,28 @@
 
 Everything here can be checked by anyone against the Tiramisu testnet. Wallet roles and every query are in [schema.md](schema.md).
 
+## Why Arkiv
+
+**What breaks without it**
+
+- **Postgres or our own API:** subscriptions would live in our database. If we went down, so would every alert, and a second operator couldn't serve users it never saw sign up. On Arkiv, worker B reads subscriptions that worker A never touched, and anyone can run a worker.
+- **IPFS:** no expiry, no attribute queries and no `$creator`. We'd need an indexer to find subscriptions and could not prove who signed a receipt.
+- **A subgraph:** it can index writes, but Arkiv sends no event when an entity expires. That silent moment is exactly what we watch. A subgraph would also be one more server for us to run.
+
+**What only Arkiv gives us**
+
+- **Expiry as a primitive.** The thing we watch (expiring entities) and our own liveness (a 30-minute heartbeat entity) both run on it. If a worker dies, Arkiv deletes its heartbeat for us.
+- **`$creator` as proof.** The user signs their subscription, so we can't forge one. Workers sign receipts, so anyone can check who delivered and whether a trigger was covered twice.
+- **Queryable attributes with no indexer.** Workers find subscriptions, and check for each other's receipts, with free `arkiv_getEntityCount` calls. The web app reads Arkiv straight from the browser, so status pages still work with our backend down.
+
+**What stays off Arkiv, and why**
+
+- **Telegram chat IDs and follows** (`relay.db`). They are personal data, so they never go on chain, not even hashed.
+- **Sponsor claims and newsletter emails** (`relay.db`). Personal data too: a Telegram user ID linked to a wallet, and email addresses.
+- **Delivered trigger IDs** (`relay.db`). A local cache so the relay never DMs the same alert twice. The receipts they point to are on Arkiv.
+- **The bot token and all private keys** (worker, sponsor, demo wallets). These are secrets, held in env vars on each host and never written anywhere public.
+- **Worker checkpoints and unsent receipts** (`state/`). Each worker's restart bookkeeping. The subscriptions and receipts themselves live on Arkiv.
+
 ## Failover rehearsal (T5.4)
 
 Worker A (`0x6a693Fd642c1F8F5E78321C2722208A3791eE79B`, delay 0, DigitalOcean nyc1) acts first. Worker B (`0xa70C8245582d173b04cAe453E9fF6D17a6e58294`, delay 15 blocks, DigitalOcean sfo2) acts only on what A missed. The relay runs beside A and stays up throughout.

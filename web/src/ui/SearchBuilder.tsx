@@ -1,4 +1,4 @@
-// The new_match search builder (T4.3, LLD §5), part of #/new: pick an example entity, tick the
+// The new_match search builder (T4.3, LLD §5), part of /new: pick an example entity, tick the
 // attributes that matter, see how many records match right now. Reports { search, targetOwner } to
 // the page, which validates and signs it like any other subscription.
 import { Check } from "lucide-react";

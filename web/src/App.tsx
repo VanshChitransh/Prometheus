@@ -1,4 +1,4 @@
-// The shell: one hash-routed bundle (LLD §1) that is both the website (home, docs, coverage) and
+// The shell: one path-routed bundle (LLD §1) that is both the website (home, docs, coverage) and
 // the app (watch, status, subscriptions). The header changes with it: site pages get the site nav and
 // the wallet; app pages also get a tab bar on phones. The wallet lives in a context.
 import {
@@ -44,7 +44,7 @@ const Ctx = createContext<WalletCtx>({
 export const useWallet = () => useContext(Ctx);
 
 type Layout = "full" | "wide" | "app";
-// Regex captures become the page's params. #/new/<key>/<trigger> opens the form filled in.
+// Regex captures become the page's params. /new/<key>/<trigger> opens the form filled in.
 const ROUTES: [RegExp, ComponentType<{ params: string[] }>, Layout][] = [
   [/^\/$/, Home, "full"],
   [/^\/docs(?:\/([a-z0-9-]+))?\/?$/, Docs, "wide"],
@@ -61,19 +61,49 @@ const ROUTES: [RegExp, ComponentType<{ params: string[] }>, Layout][] = [
 // One nav everywhere. "Watch" is the app (create a subscription); your subscriptions are in the
 // wallet menu.
 const NAV: [string, string][] = [
-  ["#/new", "Watch"],
-  ["#/docs", "Docs"],
-  ["#/docs/sdk", "SDK"],
-  ["#/coverage", "Activity"],
+  ["/new", "Watch"],
+  ["/docs", "Docs"],
+  ["/docs/sdk", "SDK"],
+  ["/coverage", "Activity"],
 ];
 const APP_NAV: [string, string, LucideIcon][] = [
-  ["#/", "Home", House],
-  ["#/new", "New", PlusCircle],
-  ["#/mine", "Subscriptions", ListChecks],
-  ["#/coverage", "Activity", Activity],
+  ["/", "Home", House],
+  ["/new", "New", PlusCircle],
+  ["/mine", "Subscriptions", ListChecks],
+  ["/coverage", "Activity", Activity],
 ];
 
-const hashPath = () => location.hash.slice(1) || "/";
+const currentPath = () => location.pathname.replace(/(.)\/$/, "$1");
+
+// Client-side navigation: the URL changes without a reload, App re-renders on popstate.
+export function navigate(to: string) {
+  history.pushState(null, "", to);
+  dispatchEvent(new PopStateEvent("popstate"));
+}
+
+// Plain <a href="/…"> links route in place. Real files (/llms.txt, /docs/x.md), new tabs and
+// modified clicks go to the browser.
+function onLinkClick(e: MouseEvent) {
+  const a = (e.target as Element | null)?.closest?.("a");
+  const href = a?.getAttribute("href");
+  if (
+    !a ||
+    !href?.startsWith("/") ||
+    href.startsWith("//") ||
+    a.target ||
+    a.hasAttribute("download") ||
+    /\.\w+$/.test(href.split(/[?#]/)[0]) ||
+    e.defaultPrevented ||
+    e.button ||
+    e.metaKey ||
+    e.ctrlKey ||
+    e.shiftKey ||
+    e.altKey
+  )
+    return;
+  e.preventDefault();
+  if (href !== location.pathname) navigate(href);
+}
 const isAppPage = (path: string) => /^\/(new|s\/|mine)/.test(path);
 
 // The theme index.html / telegram.ts set, so Sonner's toasts match it.
@@ -93,7 +123,7 @@ function useTheme() {
 }
 
 export function App() {
-  const [path, setPath] = useState(hashPath);
+  const [path, setPath] = useState(currentPath);
   const [w, setW] = useState(wallet);
   const [error, setError] = useState<unknown>();
   const [scrolled, setScrolled] = useState(false);
@@ -101,16 +131,18 @@ export function App() {
   const theme = useTheme();
 
   useEffect(() => {
-    const onHash = () => {
-      setPath(hashPath());
+    const onRoute = () => {
+      setPath(currentPath());
       setMenu(false);
       scrollTo(0, 0);
     };
     const onScroll = () => setScrolled(scrollY > 4);
-    addEventListener("hashchange", onHash);
+    addEventListener("popstate", onRoute);
+    addEventListener("click", onLinkClick);
     addEventListener("scroll", onScroll, { passive: true });
     return () => {
-      removeEventListener("hashchange", onHash);
+      removeEventListener("popstate", onRoute);
+      removeEventListener("click", onLinkClick);
       removeEventListener("scroll", onScroll);
     };
   }, []);
@@ -128,7 +160,7 @@ export function App() {
 
   let page = <NotFound />;
   let layout: Layout = "app";
-  // What Vercel Analytics records. Only matched routes: an unknown hash can be Telegram's launch data.
+  // What Vercel Analytics records. Only matched routes: an unknown path is a typo.
   let route = "/not-found";
   for (const [re, P, l] of ROUTES) {
     const m = re.exec(path);
@@ -142,7 +174,7 @@ export function App() {
   }
   const app = !!tg || isAppPage(path); // inside Telegram it is always the app
   const current = (href: string) => {
-    const p = href.slice(1);
+    const p = href;
     if (p === "/") return path === "/";
     // "Docs" lights for any docs page except the SDK's, which has its own item.
     if (p === "/docs") return path.startsWith("/docs") && path !== "/docs/sdk";
@@ -173,7 +205,7 @@ export function App() {
         >
           <div className="mx-auto flex h-15 max-w-[1200px] items-center gap-4 px-5 sm:px-10 md:gap-8">
             <a
-              href="#/"
+              href="/"
               className="flex items-center gap-2 text-[17px] font-semibold tracking-[-0.02em]"
             >
               <Spark className="size-[18px] text-accent" />
@@ -224,7 +256,7 @@ export function App() {
               className="border-t border-sep px-5 pt-2 pb-5 md:hidden"
               aria-label="Main"
             >
-              {[...NAV, ["#/mine", "My subscriptions"] as [string, string]].map(
+              {[...NAV, ["/mine", "My subscriptions"] as [string, string]].map(
                 ([href, text]) => (
                   <a
                     key={href}
@@ -270,10 +302,10 @@ export function App() {
 }
 
 const FOOTER: [string, string][] = [
-  ["#/docs", "Docs"],
-  ["#/docs/sdk", "SDK"],
-  ["#/coverage", "Activity"],
-  ["#/docs/run-a-worker", "Run a worker"],
+  ["/docs", "Docs"],
+  ["/docs/sdk", "SDK"],
+  ["/coverage", "Activity"],
+  ["/docs/run-a-worker", "Run a worker"],
   ["https://github.com/VanshChitransh/Prometheus", "GitHub"],
 ];
 
@@ -281,7 +313,7 @@ function Footer() {
   return (
     <footer className="overflow-hidden">
       <div className="flex flex-col items-center px-5 pt-24 text-center">
-        <a href="#/" aria-label="Prometheus home">
+        <a href="/" aria-label="Prometheus home">
           <Spark className="size-14 text-accent" />
         </a>
         <ul className="mt-8 flex flex-wrap justify-center gap-x-7 gap-y-2 text-[15px]">
@@ -355,7 +387,7 @@ function NotFound() {
       </h1>
       <p className="mt-2 text-ink-2">
         The link may be incomplete.{" "}
-        <a href="#/" className="text-accent">
+        <a href="/" className="text-accent">
           Go to the start
         </a>
       </p>

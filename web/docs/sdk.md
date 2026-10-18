@@ -80,7 +80,7 @@ Every `watch` method resolves to:
   key: "0x…",          // the subscription key: keep it to renew, cancel or read receipts
   txHash: "0x…",
   telegramUrl: "https://t.me/prometheus_arkiv_bot?start=…", // follow it in Telegram; shareable
-  statusUrl?: "<site>/#/s/0x…", // when `site` is set
+  statusUrl?: "<site>/s/0x…", // when `site` is set
   notes: [],           // warnings that don't stop the create (see below)
 }
 ```

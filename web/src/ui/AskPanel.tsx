@@ -197,7 +197,7 @@ export function AskPanel() {
         // Docs links in an answer navigate in place; on a phone the panel covers the page, so it closes.
         onClick={(e) => {
           const a = (e.target as HTMLElement).closest("a");
-          if (a?.getAttribute("href")?.startsWith("#/") && innerWidth < 640)
+          if (a?.getAttribute("href")?.startsWith("/") && innerWidth < 640)
             setOpen(false);
         }}
         className="flex-1 space-y-6 overflow-y-auto overscroll-contain px-5 pt-2 pb-6"

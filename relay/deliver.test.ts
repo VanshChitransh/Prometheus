@@ -254,7 +254,7 @@ test("with WEB_URL, an alert opens on the subscription's Status page first", () 
   const text = formatReceipt(base, "x", "https://app.example/");
   assert.match(
     text,
-    new RegExp(`\n\nStatus: https://app\\.example/#/s/${SUB}\n`),
+    new RegExp(`\n\nStatus: https://app\\.example/s/${SUB}\n`),
   );
   assert.equal(formatReceipt(base, "x", undefined), formatReceipt(base, "x"));
   assert.doesNotMatch(formatReceipt(base, "x"), /Status:/);

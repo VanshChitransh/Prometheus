@@ -99,7 +99,7 @@ You need your subscription's key: the entity key Arkiv gave your subscription wh
 
 ### The status page
 
-Open `<site>/#/s/<key>`. The page reads your subscription and its receipts straight from Arkiv in your browser. It needs no relay and no worker, so it keeps working if they're down. Each receipt shows what happened, which worker acted, its lateness and a link to it on the explorer.
+Open `<site>/s/<key>`. The page reads your subscription and its receipts straight from Arkiv in your browser. It needs no relay and no worker, so it keeps working if they're down. Each receipt shows what happened, which worker acted, its lateness and a link to it on the explorer.
 
 ### Telegram
 

@@ -1,4 +1,4 @@
-// #/mine (T4.4, LLD §7): the connected wallet's subscriptions, with renew (extendEntity) and cancel
+// /mine (T4.4, LLD §7): the connected wallet's subscriptions, with renew (extendEntity) and cancel
 // (deleteEntity), both signed by that wallet. Rows open in place (bencho pill-accordion).
 import { addr } from "@arkiv-network/sdk/attr";
 import { eq } from "@arkiv-network/sdk/query";
@@ -76,7 +76,7 @@ export function Mine() {
         // Only beside a list: an empty list has its own button.
         w &&
         !!list.data?.decoded.length && (
-          <LinkButton href="#/new" variant="primary">
+          <LinkButton href="/new" variant="primary">
             New subscription
           </LinkButton>
         )
@@ -117,7 +117,7 @@ export function Mine() {
             <p className="mt-1 text-[13px] text-ink-2">
               Watch an entity and it shows up here.
             </p>
-            <LinkButton href="#/new" variant="primary" className="mt-5">
+            <LinkButton href="/new" variant="primary" className="mt-5">
               New subscription
             </LinkButton>
           </div>
@@ -276,7 +276,7 @@ function SubRow({
               Cancel
             </ConfirmButton>
             <a
-              href={`#/s/${e.key}`}
+              href={`/s/${e.key}`}
               className="ml-auto text-[13px] text-accent transition-opacity hover:opacity-70"
             >
               Open status

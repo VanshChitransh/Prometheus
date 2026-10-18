@@ -63,21 +63,18 @@ const ENTITIES: Record<string, string> = {
 const decode = (t: string) =>
   t.replace(/&(amp|lt|gt|quot|#39);/g, (_, e: string) => ENTITIES[e]);
 
-// Links between docs are written as ./slug.md (they work on GitHub too); the site uses hash routes.
+// Links between docs are written as ./slug.md (they work on GitHub too); the site uses /docs/<slug>.
 function route(href: string) {
   const doc =
     /^(?:\.\/|\/docs\/)?([a-z0-9-]+)\.md(?:#.*)?$/.exec(href) ??
     /^\/docs\/([a-z0-9-]+)\/?(?:#.*)?$/.exec(href);
-  if (doc) return `#/docs/${doc[1]}`;
-  if (href === "/docs") return `#${href}`;
+  if (doc) return `/docs/${doc[1]}`;
   return href;
 }
 
 // The site's own address, for the `<site>` placeholder the docs use in URLs.
 export const SITE =
-  typeof location === "undefined"
-    ? "<site>"
-    : `${location.origin}${location.pathname.replace(/\/$/, "")}`;
+  typeof location === "undefined" ? "<site>" : location.origin;
 
 export function render(markdown: string) {
   const headings: Heading[] = [];
