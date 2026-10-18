@@ -35,6 +35,19 @@ export type Wallet = {
 let current: Wallet | undefined;
 export const wallet = () => current;
 
+// Disconnecting forgets the wallet for this page, not the key: a stored key stays put, and the flag
+// stops main.tsx bringing it back on reload until the user connects again.
+const OFF = "prometheus:disconnected";
+export const disconnected = () => localStorage.getItem(OFF) === "1";
+export function disconnect() {
+  current = undefined;
+  localStorage.setItem(OFF, "1");
+}
+const connected = (w: Wallet) => {
+  localStorage.removeItem(OFF);
+  return (current = w);
+};
+
 export async function connectMetaMask(): Promise<Wallet> {
   const eth = window.ethereum;
   if (!eth)
@@ -57,7 +70,7 @@ export async function connectMetaMask(): Promise<Wallet> {
   });
   // A different account would leave this page signing as the old address.
   eth.on("accountsChanged", () => location.reload());
-  return (current = {
+  return connected({
     kind: "metamask",
     address,
     client: injectedWalletClient(eth, address) as WalletArkivClient,
@@ -72,7 +85,7 @@ export async function useLocalKey(): Promise<Wallet> {
     key = generatePrivateKey();
     await store.set(key);
   }
-  return (current = {
+  return connected({
     kind: "local",
     address: privateKeyToAddress(key),
     client: walletClient(key, RPC) as WalletArkivClient,

@@ -45,7 +45,7 @@ import {
   useLoad,
 } from "../ui/kit.tsx";
 import { LiveRuler } from "../ui/Ruler.tsx";
-import { Funding, openWallet } from "../ui/WalletMenu.tsx";
+import { Funding, noGlmToast, openWallet } from "../ui/WalletMenu.tsx";
 import { SearchBuilder, type SearchChoice } from "../ui/SearchBuilder.tsx";
 import { balance, reader } from "../wallet.ts";
 import { TriggerGlyph } from "../ui/TriggerGlyph.tsx";
@@ -237,15 +237,16 @@ export function New({
           `This wallet already has ${live} live subscriptions, and workers serve only the oldest ${BOUNDS.subsPerCreator}. Cancel one first.`,
         );
       if ((await reader.getBalance({ address: wallet.address })) === 0n)
-        throw new Error(
-          "This wallet has no GLM yet, and creating a subscription costs gas. Get some above, then sign.",
-        );
+        return void noGlmToast();
       const { entityKey } = await wallet.client.createEntity(
         toParams(ok.draft, ok.fv.termDays),
       );
       setCreated({ entityKey, label: ok.fv.label.trim() });
     } catch (e) {
-      setProblem(e);
+      // Some GLM, but not enough for this fee: the node or MetaMask says so in words.
+      if (/insufficient funds/i.test(String((e as Error)?.message ?? e)))
+        noGlmToast();
+      else setProblem(e);
     } finally {
       setBusy(false);
     }
@@ -443,7 +444,7 @@ export function New({
         size="lg"
         className="w-full sm:w-auto"
         // No wallet yet: the button opens the wallet menu instead of failing.
-        disabled={busy || unfunded || (!!wallet && !!check.blocker)}
+        disabled={busy || (!!wallet && !!check.blocker)}
         onClick={wallet ? submit : openWallet}
       >
         {busy

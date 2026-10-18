@@ -1,6 +1,11 @@
 // The wallet in the header: a pill that opens a popover from its own corner. Not connected, it offers the
 // two ways in (LLD §7 "Wallets"); connected, it shows the address, balance, free GLM and key export.
-import { ChevronDown, KeyRound, Wallet as WalletIcon } from "lucide-react";
+import {
+  ChevronDown,
+  Droplet,
+  KeyRound,
+  Wallet as WalletIcon,
+} from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -21,7 +26,15 @@ import {
   storedKey,
   useLocalKey,
 } from "../wallet.ts";
-import { Button, cx, ErrorText, Hash, short, useLoad } from "./kit.tsx";
+import {
+  Button,
+  cx,
+  ErrorText,
+  Hash,
+  LinkButton,
+  short,
+  useLoad,
+} from "./kit.tsx";
 
 // The relay sponsors wallets below this (relay/sponsor.ts FUNDED).
 const NEEDS_GLM = 10_000_000_000_000_000n; // 0.01 GLM
@@ -111,6 +124,21 @@ function Choice({
   );
 }
 
+// Out of gas at the moment of signing: say so where the eye already is, with the way out attached.
+export const noGlmToast = () =>
+  toast.error("Not enough GLM to pay the fee", {
+    description: canSponsor()
+      ? "Get free GLM from the wallet menu, then sign again."
+      : "Get free testnet GLM from the faucet, then sign again.",
+    position: "bottom-right",
+    duration: 10_000,
+    action: {
+      label: "Get GLM",
+      onClick: () =>
+        canSponsor() ? openWallet() : window.open(FAUCET, "_blank"),
+    },
+  });
+
 // Any page can ask for the wallet menu ("Connect wallet" in the hero, a sign button): openWallet().
 const OPEN = "prometheus:open-wallet";
 export const openWallet = () => {
@@ -172,12 +200,18 @@ export function WalletMenu() {
 }
 
 function Connected() {
-  const { wallet } = useWallet();
+  const { wallet, disconnect } = useWallet();
   const w = wallet!;
   const [open, setOpen] = useState(false);
   useOpenRequest(useCallback(() => setOpen(true), []));
   const bal = useLoad(() => balance(w.address), [w.address]);
   const low = bal.data !== undefined && bal.data < NEEDS_GLM;
+  // The faucet opens in a new tab: re-read when the user comes back.
+  useEffect(() => {
+    addEventListener("focus", bal.reload);
+    return () => removeEventListener("focus", bal.reload);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="sm:relative">
@@ -227,7 +261,19 @@ function Connected() {
                 : glmShort(bal.data)}
             <span className="ml-1 text-[15px] font-medium text-ink-2">GLM</span>
           </div>
-          {low && <Funding address={w.address} onFunded={bal.reload} />}
+          {/* Telegram's free GLM when it's due; the faucet, always one tap away, otherwise. */}
+          {low && canSponsor() ? (
+            <Funding address={w.address} onFunded={bal.reload} />
+          ) : (
+            <LinkButton
+              href={FAUCET}
+              variant={low ? "primary" : "secondary"}
+              size="sm"
+              className="mt-3 w-full"
+            >
+              <Droplet className="size-3.5" /> Add GLM from the faucet
+            </LinkButton>
+          )}
           {w.kind === "local" && (
             <>
               <p className="mt-4 text-[13px] leading-[1.4] text-ink-2">
@@ -243,6 +289,28 @@ function Connected() {
           >
             My subscriptions
           </a>
+          {/* Telegram has one wallet per user: nothing to switch to. */}
+          {!tg && (
+            <div className="mt-3 flex justify-center gap-4 text-[13px] font-medium">
+              <button
+                type="button"
+                onClick={() => {
+                  disconnect();
+                  openWallet(); // the picker, in the same spot
+                }}
+                className="cursor-pointer text-accent hover:opacity-75"
+              >
+                Change wallet
+              </button>
+              <button
+                type="button"
+                onClick={disconnect}
+                className="cursor-pointer text-ink-2 hover:text-ink"
+              >
+                Disconnect
+              </button>
+            </div>
+          )}
         </div>
       </Popover>
     </div>
