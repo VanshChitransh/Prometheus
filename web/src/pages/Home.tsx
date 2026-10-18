@@ -1,6 +1,6 @@
 // #/: the website's front page (planning/HOME_COPY.md). For a first-time visitor: what Arkiv lacks,
 // how Prometheus fixes it, and how to start. Live numbers are free counts read from Arkiv.
-import { ArrowUpRight, Plus } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Plus } from "lucide-react";
 import {
   animate,
   useMotionValue,
@@ -13,7 +13,6 @@ import { PROJECT, type Trigger } from "../../../shared/schema.ts";
 import { EXPLORER, TRUSTED } from "../receipts.ts";
 import { telegramClick } from "../telegram.ts";
 import { cx, LinkButton, num, Spark, useLoad } from "../ui/kit.tsx";
-import { WatchBox } from "../ui/WatchBox.tsx";
 import { WayScene } from "../ui/WayScene.tsx";
 import { reader } from "../wallet.ts";
 import { liveness } from "./Coverage.tsx";
@@ -121,9 +120,41 @@ function Hero() {
             </LinkButton>
           </div>
         </div>
-        <WatchBox />
+        <HeroVideo />
       </Frame>
     </section>
+  );
+}
+
+// A 15 s silent loop of the web flow: paste a key, pick an alert, sign, then the Telegram warning.
+// Rendered frame by frame from planning/hero-video. Reduced motion gets the still (the alert) and
+// a play button instead of autoplay.
+function HeroVideo() {
+  const quiet = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return (
+    <figure>
+      <video
+        src="/hero-demo.mp4"
+        poster="/hero-demo.jpg"
+        width={1080}
+        height={1350}
+        autoPlay={!quiet}
+        controls={quiet}
+        muted
+        loop
+        playsInline
+        preload={quiet ? "none" : "auto"}
+        aria-label="Demo: paste an entity key, choose Warn me before it expires, connect a wallet and sign. Two workers watch every block, and Telegram sends an EXPIRING SOON alert 10 minutes before the entity expires."
+        className="h-auto w-full rounded-[24px] bg-page shadow-float"
+      />
+      <a
+        href="#/new"
+        className="group mt-3 inline-flex items-center gap-1.5 text-[14px] text-ink-2 transition-colors hover:text-ink"
+      >
+        Try it yourself
+        <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+      </a>
+    </figure>
   );
 }
 
