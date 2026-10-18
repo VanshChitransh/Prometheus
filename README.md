@@ -49,9 +49,10 @@
 18. [Proof: the failover rehearsal](#-proof-the-failover-rehearsal)
 19. [What we learned building on Arkiv](#-what-we-learned-building-on-arkiv)
 20. [Known limits](#-known-limits)
-21. [FAQ](#-faq)
-22. [Glossary](#-glossary)
-23. [License](#-license)
+21. [What's next](#-whats-next)
+22. [FAQ](#-faq)
+23. [Glossary](#-glossary)
+24. [License](#-license)
 
 ---
 
@@ -1044,6 +1045,16 @@ We'd rather you hear these from us. Found by our own audit on 17 Oct; Arkiv-side
 - **No block hash in the trigger id.** Tiramisu has a single block producer, so reorgs aren't expected.
 
 </details>
+
+---
+
+## 🔭 What's next
+
+Arkiv's [wishlist](https://hub.arkiv.network/ecosystem) asks for a network that "watches queries, reacts to entity expiration or state changes, **executes actions**, and writes signed receipts back to Arkiv". Prometheus does the watching, the reacting and the receipts. Today the only actions are an alert and a renewal. Next:
+
+- **Webhooks.** A worker sends the receipt key to a URL the app chooses. The app reads that receipt on Arkiv and checks its `$creator` before acting, so it never has to trust the call itself. Apps react in code, not just in Telegram, and delivery no longer depends on our one relay.
+- **An open worker network.** Today `TRUSTED_WORKERS` is a list we set. Every receipt already records who acted and how late (`done_block` minus `trigger_block`), so a worker's on time rate can be computed from Arkiv alone. Anyone could join, be scored by that record, and later be paid in GLM per receipt.
+- **Value triggers.** Alert only when an attribute hits a value you pick, like a status turning to `halted`, not on every change.
 
 ---
 
