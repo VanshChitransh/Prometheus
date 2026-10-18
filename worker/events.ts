@@ -14,7 +14,7 @@ import type { Receipts } from "./receipts.ts";
 import { seedGone } from "./startup.ts";
 import type { SubsIndex } from "./subs.ts";
 
-const MAX_ATTEMPTS = 10; // ~4 min of backoff (1 s → 30 s) before a persistent failure is dropped
+const MAX_ATTEMPTS = 10; // ~2.5 min of backoff (1 s → 30 s) before a persistent failure is dropped
 
 // What an event leaves to do after its synchronous cache updates: RPC work (through the limiter),
 // and receipts to fire once that's done.
@@ -28,8 +28,8 @@ export function createDispatch(o: {
   trustedWorkers: readonly Hex[];
   retryBaseMs?: number; // first backoff step; tests shrink it
   // The HTTP node's head. Free counts read the HTTP node, which can trail the socket that delivered
-  // the event, so a count for a just-created entity could say 0 (audit M7); counts can't be pinned
-  // to a block (arkiv_getEntityCount ignores atBlock, measured 17 Oct). index.ts wires it; without it
+  // the event, so a count for a just-created entity could say 0 (audit M7); counts aren't pinned to
+  // the event's block yet (the count takes `block`, not `atBlock`). index.ts wires it; without it
   // the wait is skipped. Known limit: a replayed event is counted against the current state.
   headNow?: () => Promise<bigint>;
   // The block startup discovery read every live subscription at (discoverAll). A creation at or

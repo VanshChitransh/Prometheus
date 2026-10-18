@@ -12,8 +12,8 @@ import type { Targets } from "./expiry.ts";
 import { receiptCreate, type Seen } from "./receipts.ts";
 import type { Writer } from "./writer.ts";
 
-// Below this the keeper stops spending: ~200 extends at ~25.5k gas and ~1 gwei, kept back so
-// heartbeats and receipts can still be paid for (LLD §3.6).
+// Below this the keeper stops spending: ~37 renewals at 132,320 gas each (extend + receipt in one tx,
+// measured 17 Oct) and ~1 gwei, kept back so heartbeats and receipts can still be paid for (LLD §3.6).
 const RESERVE = parseEther("0.005");
 
 // undefined = kept: the extension and its `kept` receipt landed in one transaction.
