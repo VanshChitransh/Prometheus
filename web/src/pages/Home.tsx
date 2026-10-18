@@ -135,7 +135,7 @@ function Hero() {
             Everything stored on Arkiv has an expiry date, and nothing tells you
             when it passes. Prometheus watches the data you care about and
             messages you on Telegram before it expires. It can also keep the
-            data alive for you.
+            data alive for you, if its owner allows anyone to renew it.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <LinkButton href={BOT} size="lg" onClick={telegramClick(BOT)}>
@@ -363,8 +363,8 @@ const EXAMPLES = [
     "Unless they run a checker in cron.",
   ],
   [
-    "Traders stuck behind an exchange halt hear nothing from Door Ledger.",
-    "Its alerts live in the author's private monitor.",
+    "Traders stuck behind an exchange halt on Door Ledger only find out by checking a page.",
+    "Nothing alerts them.",
   ],
   [
     "A construction defect on SiteLog vanishes after 90 quiet days.",
@@ -441,10 +441,9 @@ function Problem() {
             </p>
             <p>
               In this buildathon alone,{" "}
-              <span className="text-ink">6 teams</span> shipped a renew button
-              someone has to remember to press, and{" "}
-              <span className="text-ink">6</span> built their own watcher. Here
-              is who loses out today.
+              <span className="text-ink">several teams</span> shipped a renew
+              button someone has to remember to press, or built their own
+              watcher. Here is who loses out today.
             </p>
           </div>
           <Flatline />
@@ -605,7 +604,7 @@ const WAYS: { id: Trigger; title: string; text: string }[] = [
   {
     id: "keep",
     title: "Keep it alive",
-    text: "Prometheus renews it before it expires.",
+    text: "Prometheus renews it before it expires, if the owner allows it.",
   },
 ];
 
@@ -770,15 +769,15 @@ const count = (q: string) =>
 const TRUST = [
   [
     "Every action leaves a receipt.",
-    "Prometheus writes what happened, when, and which worker acted, as a public entry on Arkiv. Receipts can't be rewritten; deletion is publicly logged.",
+    "Prometheus writes what happened, when, and which worker acted, as a public entry on Arkiv. Receipts can't be rewritten, deletion is publicly logged, and they last 30 days.",
   ],
   [
     "Two workers, two servers.",
-    "If one stops, the other takes over within 30 seconds.",
+    "If one stops, the other covers for it about 30 seconds later. Telegram alerts come from one relay, so they pause if it's down.",
   ],
   [
     "Your subscription is yours.",
-    "It's stored on Arkiv under your wallet, not in our database. If we disappeared, anyone could run a worker and keep serving it.",
+    "Your subscription lives on Arkiv under your wallet. Only the Telegram chat it alerts is kept on our relay. If we disappeared, anyone could run a worker and keep writing its receipts.",
   ],
 ];
 
@@ -844,7 +843,7 @@ function Trust() {
 const PATHS = [
   {
     title: "In Telegram",
-    text: "Paste a key, pick an alert, done. Telegram creates your wallet and we cover the fee.",
+    text: "Paste a key, pick an alert, done. We make a wallet for you inside Telegram and cover the fee.",
     cta: "Open in Telegram",
     href: BOT,
     primary: true,
@@ -964,7 +963,7 @@ const FAQ: [string, ReactNode][] = [
   ],
   [
     "What happens if Prometheus shuts down?",
-    "Your subscriptions stay on Arkiv. Anyone can run a worker from the open-source code and keep serving them.",
+    "Your subscriptions stay on Arkiv until they end (30 days at most). Telegram alerts would stop, but anyone can run a worker from the open-source code and keep writing receipts for them.",
   ],
 ];
 
