@@ -60,7 +60,7 @@ export function formatReceipt(
     detail,
     "",
     ...(webUrl
-      ? [`Status: ${webUrl.replace(/\/$/, "")}/#/s/${r.subscription}`]
+      ? [`Status: ${webUrl.replace(/\/$/, "")}/s/${r.subscription}`]
       : []),
     `Target: ${EXPLORER}/entity/${r.subject}`,
     `Receipt: ${EXPLORER}/entity/${r.key}`,

@@ -71,7 +71,7 @@ for (const r of await prometheus.receipts(sub.key))
   console.log(r.event, r.triggerBlock, r.doneBlock); // "warned", 703243n, 703243n
 ```
 
-You can also open the status page, `<site>/#/s/<subscription key>`, which reads the same receipts straight from Arkiv.
+You can also open the status page, `<site>/s/<subscription key>`, which reads the same receipts straight from Arkiv.
 
 ## In a browser app
 

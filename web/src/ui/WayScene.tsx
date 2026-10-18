@@ -403,7 +403,7 @@ function Keep({ t }: { t: number }) {
       <AnimatePresence>
         {kept && (
           <motion.a
-            href="#/docs/receipts"
+            href="/docs/receipts"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0, transition: { ...SOFT, delay: 0.25 } }}
             exit={{ opacity: 0 }}

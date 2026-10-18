@@ -1,5 +1,5 @@
 // prometheus-arkiv: create, check, renew, cancel and read Prometheus subscriptions from code.
-// Every create runs the same checks as the web app's #/new before anything is signed.
+// Every create runs the same checks as the web app's /new before anything is signed.
 import type { PublicArkivClient, WalletArkivClient } from "@arkiv-network/sdk";
 import { addr, key } from "@arkiv-network/sdk/attr";
 import { eq, MAX_LIMIT, or, type Expression } from "@arkiv-network/sdk/query";
@@ -170,7 +170,7 @@ export class Prometheus {
     return getAddress(a); // a browser wallet may report it lowercase
   }
 
-  // Everything #/new checks, in its order. Free reads only.
+  // Everything /new checks, in its order. Free reads only.
   async #prepare(trigger: Trigger, input: Input) {
     const creator = this.#address();
     const { params, lead, term } = build(trigger, input, creator);
@@ -229,7 +229,7 @@ export class Prometheus {
       key: entityKey,
       txHash,
       telegramUrl: `https://t.me/${this.#bot}?start=${encodeKey(entityKey)}`,
-      ...(this.#site && { statusUrl: `${this.#site}/#/s/${entityKey}` }),
+      ...(this.#site && { statusUrl: `${this.#site}/s/${entityKey}` }),
       notes,
     };
   }

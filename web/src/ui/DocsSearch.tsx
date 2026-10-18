@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { DOCS } from "../content.ts";
 import { indexDocs, search, termsOf, type Hit } from "../docsSearch.ts";
 import { askEnabled, openAsk } from "./AskPanel.tsx";
+import { navigate } from "../App.tsx";
 import { cx } from "./kit.tsx";
 
 let index: ReturnType<typeof indexDocs> | undefined;
@@ -19,12 +20,12 @@ export const searchKey =
     ? "⌘K"
     : "Ctrl K";
 
-// The router only knows #/docs/<slug>, and App scrolls to the top on every route change. So route first,
+// The router only knows /docs/<slug>, and App scrolls to the top on every route change. So route first,
 // then scroll once that page's article is on screen ([data-doc] keeps the old page's same-named id out).
 function go(h: Hit) {
-  const route = `#/docs/${h.slug}`;
-  const same = location.hash === route;
-  if (!same) location.hash = route;
+  const route = `/docs/${h.slug}`;
+  const same = location.pathname === route;
+  if (!same) navigate(route);
   if (!h.id) return same && scrollTo({ top: 0, behavior: "smooth" });
   let frames = 30;
   const tryScroll = () => {

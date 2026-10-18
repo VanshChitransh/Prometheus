@@ -1,4 +1,4 @@
-// #/docs and #/docs/:slug: the docs, rendered from web/docs/*.md. Sidebar in reading order, the page,
+// /docs and /docs/:slug: the docs, rendered from web/docs/*.md. Sidebar in reading order, the page,
 // and "On this page" for its sections. Every page can be copied as Markdown (for agents).
 import {
   ArrowLeft,
@@ -77,7 +77,7 @@ export function Docs({ params: [slug] }: { params: string[] }) {
         >
           {prev ? (
             <a
-              href={`#/docs/${prev.slug}`}
+              href={`/docs/${prev.slug}`}
               className="group rounded-[14px] border border-sep p-4 transition-colors hover:border-ink-3"
             >
               <span className="flex items-center gap-1.5 text-[13px] text-ink-3">
@@ -90,7 +90,7 @@ export function Docs({ params: [slug] }: { params: string[] }) {
           )}
           {next && (
             <a
-              href={`#/docs/${next.slug}`}
+              href={`/docs/${next.slug}`}
               className="group rounded-[14px] border border-sep p-4 text-right transition-colors hover:border-ink-3"
             >
               <span className="flex items-center justify-end gap-1.5 text-[13px] text-ink-3">
@@ -157,7 +157,7 @@ function Sidebar({ current }: { current: string }) {
               {pages.map((p) => (
                 <li key={p}>
                   <a
-                    href={`#/docs/${p}`}
+                    href={`/docs/${p}`}
                     aria-current={p === current ? "page" : undefined}
                     className={cx(
                       "-mx-2.5 block rounded-[8px] px-2.5 py-1.5 text-[14px] transition-colors",

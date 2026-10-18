@@ -285,7 +285,7 @@ function Connected() {
             </>
           )}
           <a
-            href="#/mine"
+            href="/mine"
             onClick={() => setOpen(false)}
             className="mt-3 flex h-9 items-center justify-center rounded-full bg-fill text-[13px] font-medium transition-colors hover:bg-fill-strong"
           >

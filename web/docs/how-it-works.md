@@ -29,7 +29,7 @@ A **block** is Arkiv's unit of time: one every 2 seconds, so 30 blocks = 1 minut
                                          |
                     +--------------------+-------------------+
                     v                                        v
-          relay -> Telegram DM                status page <site>/#/s/<key>
+          relay -> Telegram DM                status page <site>/s/<key>
 ```
 
 ## Watch

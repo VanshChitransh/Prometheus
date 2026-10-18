@@ -65,7 +65,7 @@ Before you let the agent sign anything, read what it wrote:
 - Does it catch `PrometheusError` and show the message?
 - For `keep`, is the target something that should live on, not a canary or heartbeat?
 
-After it runs, open `<site>/#/s/<subscription key>` to see the subscription the way workers read it.
+After it runs, open `<site>/s/<subscription key>` to see the subscription the way workers read it.
 
 ## Coming soon
 

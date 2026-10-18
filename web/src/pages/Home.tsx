@@ -1,4 +1,4 @@
-// #/: the website's front page (planning/HOME_COPY.md). For a first-time visitor: what Arkiv lacks,
+// /: the website's front page (planning/HOME_COPY.md). For a first-time visitor: what Arkiv lacks,
 // how Prometheus fixes it, and how to start. Live numbers are free counts read from Arkiv.
 import {
   ArrowRight,
@@ -141,7 +141,7 @@ function Hero() {
             <LinkButton href={BOT} size="lg" onClick={telegramClick(BOT)}>
               Open in Telegram
             </LinkButton>
-            <LinkButton href="#/docs/sdk" size="lg" variant="plain">
+            <LinkButton href="/docs/sdk" size="lg" variant="plain">
               Use the SDK
             </LinkButton>
           </div>
@@ -175,7 +175,7 @@ function HeroVideo() {
         className="h-auto w-full rounded-[24px] bg-page shadow-float"
       />
       <a
-        href="#/new"
+        href="/new"
         className="group mt-3 inline-flex items-center gap-1.5 text-[14px] text-ink-2 transition-colors hover:text-ink"
       >
         Try it yourself
@@ -329,10 +329,10 @@ function AlertPreview({ on }: { on: boolean }) {
               </div>
               <div className="mt-2 flex items-center gap-3 text-[13px] text-accent">
                 {/* The alerts are examples, so the links explain the parts rather than open made-up keys. */}
-                <a href="#/docs/triggers" className={ALERT_LINK}>
+                <a href="/docs/triggers" className={ALERT_LINK}>
                   Target <ArrowUpRight className="size-3.5" />
                 </a>
-                <a href="#/docs/receipts" className={ALERT_LINK}>
+                <a href="/docs/receipts" className={ALERT_LINK}>
                   Receipt <ArrowUpRight className="size-3.5" />
                 </a>
                 <span className="tnum ml-auto text-[11px] text-ink-3">
@@ -807,7 +807,7 @@ function Trust() {
             )}
           </p>
           <a
-            href="#/coverage"
+            href="/coverage"
             className="inline-flex h-11 items-center gap-1.5 rounded-full bg-white px-5 text-[15px] font-medium text-[#0a0a0a] transition-transform duration-150 active:scale-[0.97]"
           >
             See the live record <ArrowUpRight className="size-4" />
@@ -832,13 +832,13 @@ const PATHS = [
     title: "On the web",
     text: "Connect a wallet and watch any entity. The page checks everything before you sign.",
     cta: "Watch on the web",
-    href: "#/new",
+    href: "/new",
   },
   {
     title: "In your code",
     text: "Install the SDK and add a watch in three lines, signed by the wallet your app already has.",
     cta: "Read the SDK docs",
-    href: "#/docs/sdk",
+    href: "/docs/sdk",
   },
 ];
 
@@ -862,7 +862,7 @@ function Start() {
               <p className="mt-2 mb-6 text-[16px] leading-[1.55] text-ink-2">
                 {p.text}
               </p>
-              {p.href === "#/docs/sdk" ? (
+              {p.href === "/docs/sdk" ? (
                 <SdkSnippet />
               ) : (
                 <div className="flex-1" />
@@ -882,7 +882,7 @@ function Start() {
         <p className="border-t border-sep px-5 py-6 text-[15px] text-ink-2 sm:px-10">
           Using Claude Code or Codex? Point it at{" "}
           <a
-            href="#/docs/for-agents"
+            href="/docs/for-agents"
             className="text-accent underline decoration-accent/30 underline-offset-[3px]"
           >
             our docs for agents

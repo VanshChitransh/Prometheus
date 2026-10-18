@@ -17,7 +17,7 @@
 ![Arkiv SDK](https://img.shields.io/badge/@arkiv--network/sdk-0.8.1-111)
 ![Network](https://img.shields.io/badge/network-Tiramisu%20testnet-8b5cf6)
 
-[Live app](https://prometheus-arkiv.vercel.app) · [Docs](https://prometheus-arkiv.vercel.app/#/docs) · [SDK](sdk/README.md) · [Telegram bot](https://t.me/prometheus_arkiv_bot) · [Activity](https://prometheus-arkiv.vercel.app/#/coverage)
+[Live app](https://prometheus-arkiv.vercel.app) · [Docs](https://prometheus-arkiv.vercel.app/docs) · [SDK](sdk/README.md) · [Telegram bot](https://t.me/prometheus_arkiv_bot) · [Activity](https://prometheus-arkiv.vercel.app/coverage)
 
 </div>
 
@@ -312,7 +312,7 @@ flowchart TB
 
     subgraph Web["🌐 Web app · Vercel · React + Vite"]
         HOME["Home / Watch form"]
-        STATUS["Status #/s/key"]
+        STATUS["Status /s/key"]
         MINE["My subscriptions"]
         COV["Activity / Coverage"]
         DOCS["Docs + Ask AI"]
@@ -370,7 +370,7 @@ flowchart TB
 
 ### Design principles
 
-- **Arkiv is the database.** Subscriptions, receipts and liveness all live on chain. The only off-chain state is the relay's Telegram follows (chat ids are personal data and never go on chain, not even hashed).
+- **Arkiv is the database.** Subscriptions, receipts and liveness all live on chain. Off chain stay only personal data (Telegram follows, sponsor claims, newsletter emails in `relay.db`; chat ids never go on chain, not even hashed), secrets (bot token, private keys) and restart bookkeeping (checkpoints, delivered ids).
 - **Free reads on the hot path.** Per-block work uses `arkiv_getEntity` and `arkiv_getEntityCount`, which were measured free. The paid `arkiv_query` runs only at startup and in an hourly re-sync.
 - **Expiry is the health check.** A worker's heartbeat entity lives 30 minutes and is renewed every 10. If the worker dies, Arkiv deletes the heartbeat for us.
 - **Trust `$creator`, never attributes.** Anyone can write an entity that looks like a receipt. Only the signing wallet, which Arkiv records, decides whether it counts.
@@ -695,14 +695,14 @@ Every number, with what happens when you hit it: [Limits](web/docs/limits.md).
 
 One hash-routed React bundle is **both** the website and the app, and the **same bundle runs as the Telegram Mini App**.
 
-| Route           | Page             | What it does                                                                                                   |
-| --------------- | ---------------- | -------------------------------------------------------------------------------------------------------------- |
-| `#/`            | Home             | Paste a key, or try a live example                                                                             |
-| `#/new`         | Watch            | The subscription form with a visual search builder; validates live with the workers' decoder                   |
-| `#/s/<key>`     | Status           | One subscription and its receipts, read straight from Arkiv (works even if relay and workers are down)         |
-| `#/mine`        | My subscriptions | Your wallet's subscriptions: renew, cancel, see "served / not served"                                          |
-| `#/coverage`    | Activity         | Last 24 h of trusted receipts grouped by trigger: normal / covered by B / delivered twice, worker health, gaps |
-| `#/docs/<slug>` | Docs             | Rendered from [`web/docs/*.md`](web/docs), with search and an **Ask AI** panel                                 |
+| Route          | Page             | What it does                                                                                                   |
+| -------------- | ---------------- | -------------------------------------------------------------------------------------------------------------- |
+| `/`            | Home             | Paste a key, or try a live example                                                                             |
+| `/new`         | Watch            | The subscription form with a visual search builder; validates live with the workers' decoder                   |
+| `/s/<key>`     | Status           | One subscription and its receipts, read straight from Arkiv (works even if relay and workers are down)         |
+| `/mine`        | My subscriptions | Your wallet's subscriptions: renew, cancel, see "served / not served"                                          |
+| `/coverage`    | Activity         | Last 24 h of trusted receipts grouped by trigger: normal / covered by B / delivered twice, worker health, gaps |
+| `/docs/<slug>` | Docs             | Rendered from [`web/docs/*.md`](web/docs), with search and an **Ask AI** panel                                 |
 
 **Wallets:** a browser-generated key, MetaMask, or (inside Telegram) a key held in Telegram's secure storage. The site never sees an Arkiv access key: [`vite.config.ts`](vite.config.ts) injects an explicit allow-list of build-time values only.
 
@@ -989,6 +989,7 @@ We'd rather you hear these from us. Found by our own audit on 17 Oct; Arkiv-side
 - **WK-13:** A transient RPC error during startup exits the worker; the container restart brings it back.
 - **WK-14:** A subscription renewed during a re-sync may use its old expiry for up to an hour.
 - **WK-15:** `new_match` evaluates at most 50 subscriptions per entity; past about 45 distinct searches, event handling lags.
+- **F9:** A keep sets the target's expiry later. If the owner later extends by a shorter duration, Arkiv rejects it (`ExpiryNotExtended`) because the new expiry would be earlier; the owner must extend past our keep.
 
 </details>
 
@@ -1008,13 +1009,13 @@ We'd rather you hear these from us. Found by our own audit on 17 Oct; Arkiv-side
 <summary><b>Ops & web</b></summary>
 
 - **OP-3:** `/health` is checked by hand; Docker restarts the relay only when it exits.
-- **WB-20:** `#/new`'s 20-per-wallet check counts every live subscription of the wallet, including ones workers reject.
+- **WB-20:** `/new`'s 20-per-wallet check counts every live subscription of the wallet, including ones workers reject.
 - **WB-21:** The site loads telegram.org's Mini App script on every visit; where telegram.org is blocked, the page waits for it to time out.
 - **WB-22:** In Telegram on iPhone, Export key may not copy; the key stays in Telegram's secure storage.
 - **WB-23:** After you make a browser key, MetaMask needs a click on each visit.
 - **WB-24:** The lifetime ruler keeps moving when reduced motion is on.
-- **WB-26:** Receipts show relative time and lateness in blocks, not the exact trigger block or the worker address; `#/mine` doesn't mark public monitors.
-- **WB-28:** `#/mine` can label a subscription "served" while its target is gone.
+- **WB-26:** Receipts show relative time and lateness in blocks, not the exact trigger block or the worker address; `/mine` doesn't mark public monitors.
+- **WB-28:** `/mine` can label a subscription "served" while its target is gone.
 
 </details>
 

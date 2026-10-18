@@ -1,4 +1,4 @@
-// #/s/:key (T4.5, LLD §7): what a subscription watches and what the workers did, read straight from
+// /s/:key (T4.5, LLD §7): what a subscription watches and what the workers did, read straight from
 // Arkiv. Needs no relay and no worker: it works with all of them stopped. Telegram alerts link here.
 import { key } from "@arkiv-network/sdk/attr";
 import { eq } from "@arkiv-network/sdk/query";

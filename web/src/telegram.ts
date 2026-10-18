@@ -41,25 +41,31 @@ declare global {
 const app = (globalThis as { window?: Window }).window?.Telegram?.WebApp;
 export const tg = app?.initData ? app : undefined;
 
-// The hash to open at launch. Telegram appends #tgWebAppData=… to our URL, which the router can't
-// read; t.me/<bot>?startapp=<encoded key> means "open that subscription's status page", and
+// The path to open at launch. Telegram appends #tgWebAppData=… to our URL (dropped here), and links
+// from before path routes are #/<path>; t.me/<bot>?startapp=<encoded key> means "open that subscription's status page", and
 // ?startapp=new opens the form (the web's "In Telegram" card).
-export function launchHash(hash: string, startParam?: string) {
-  if (startParam === "new") return "#/new";
+export function launchPath(path: string, hash: string, startParam?: string) {
+  if (startParam === "new") return "/new";
   const key = startParam ? decodeKey(startParam) : null;
-  if (key) return `#/s/${key}`;
-  return hash === "" || hash.startsWith("#tgWebApp") ? "#/" : hash;
+  if (key) return `/s/${key}`;
+  if (hash.startsWith("#/")) return hash.slice(1);
+  return hash.startsWith("#tgWebApp") ? path : path + hash;
 }
 
-// Before the router starts. telegram-web-app.js (loaded first, in <head>) has already read the hash.
+// Before the router starts. telegram-web-app.js (loaded first, in <head>) has already read the launch hash.
 // The page has one look (index.css); inside Telegram we only paint Telegram's own
 // header and overscroll in the page colour, so the Mini App reads as one surface.
 export function boot() {
+  const to = launchPath(
+    location.pathname,
+    location.hash,
+    tg?.initDataUnsafe.start_param,
+  );
+  if (to !== location.pathname + location.hash)
+    history.replaceState(null, "", to);
   if (!tg) return;
   tg.ready();
   tg.expand();
-  const h = launchHash(location.hash, tg.initDataUnsafe.start_param);
-  if (h !== location.hash) history.replaceState(null, "", h);
   const page = getComputedStyle(document.documentElement)
     .getPropertyValue("--page")
     .trim();
