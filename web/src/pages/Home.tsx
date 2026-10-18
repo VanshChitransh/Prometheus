@@ -1,6 +1,13 @@
 // #/: the website's front page (planning/HOME_COPY.md). For a first-time visitor: what Arkiv lacks,
 // how Prometheus fixes it, and how to start. Live numbers are free counts read from Arkiv.
-import { ArrowRight, ArrowUpRight, Plus } from "lucide-react";
+import {
+  ArrowRight,
+  ArrowUpRight,
+  Check,
+  Mail,
+  Package,
+  Plus,
+} from "lucide-react";
 import {
   animate,
   useMotionValue,
@@ -12,12 +19,21 @@ import { freeCount, trustedFilter } from "../../../shared/arkiv.ts";
 import { PROJECT, type Trigger } from "../../../shared/schema.ts";
 import { EXPLORER, TRUSTED } from "../receipts.ts";
 import { telegramClick } from "../telegram.ts";
-import { cx, LinkButton, num, Spark, useLoad } from "../ui/kit.tsx";
+import {
+  Button,
+  cx,
+  ErrorText,
+  LinkButton,
+  num,
+  Spark,
+  useLoad,
+} from "../ui/kit.tsx";
 import { WayScene } from "../ui/WayScene.tsx";
 import { reader } from "../wallet.ts";
 import { liveness } from "./Coverage.tsx";
 
 declare const __BOT_NAME__: string; // vite.config.ts
+declare const __RELAY_URL__: string; // vite.config.ts; "" = no relay, so no newsletter form
 export const BOT = `https://t.me/${__BOT_NAME__ || "prometheus_arkiv_bot"}`;
 
 // The framed column every section sits in (agenttrust's hairline rails).
@@ -77,6 +93,7 @@ export function Home() {
       <Trust />
       <Start />
       <Questions />
+      <Subscribe />
     </div>
   );
 }
@@ -96,10 +113,19 @@ function Hero() {
             href={TRUSTED[0] ? `${EXPLORER}/address/${TRUSTED[0]}` : EXPLORER}
             target="_blank"
             rel="noreferrer"
-            className="group inline-flex items-center gap-2 font-mono text-[12px] tracking-[0.06em] text-ink-3 uppercase transition-colors hover:text-ink"
+            className="group inline-flex items-center gap-2.5 rounded-full border border-ok/25 bg-ok/8 py-1.5 pr-3 pl-3 font-mono text-[12px] tracking-[0.06em] text-ink-2 uppercase transition-colors hover:border-ok/45 hover:text-ink"
           >
-            <span className="size-1.5 animate-blink rounded-full bg-ok" /> Live
-            on Arkiv's testnet
+            {/* A steady dot with a ring pulsing out of it; reduced motion keeps just the dot. */}
+            <span
+              className="relative grid size-2 place-items-center"
+              aria-hidden
+            >
+              <span className="absolute inset-0 animate-live rounded-full bg-ok motion-reduce:hidden" />
+              <span className="relative size-2 rounded-full bg-ok" />
+            </span>
+            <span>
+              <span className="text-ok">Live</span> on Arkiv's testnet
+            </span>
             <ArrowUpRight className="size-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
           </a>
           <h1 className="mt-6 font-display text-[46px] leading-[1.02] text-balance sm:text-[64px]">
@@ -119,6 +145,7 @@ function Hero() {
               Use the SDK
             </LinkButton>
           </div>
+          <Install />
         </div>
         <HeroVideo />
       </Frame>
@@ -155,6 +182,94 @@ function HeroVideo() {
         <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
       </a>
     </figure>
+  );
+}
+
+// The SDK's install line and where it lives: npm and the repo (agenttrust's install strip).
+const INSTALL = "npm install prometheus-arkiv";
+const NPM = "https://www.npmjs.com/package/prometheus-arkiv";
+const REPO = "https://github.com/VanshChitransh/Prometheus";
+
+function Install() {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="mt-10 max-w-[560px]">
+      <div className="flex items-center gap-3 rounded-[12px] bg-band py-3 pr-2 pl-4 font-mono text-[14px] text-white/90">
+        <span className="text-white/40 select-none" aria-hidden>
+          $
+        </span>
+        <code className="min-w-0 flex-1 truncate">{INSTALL}</code>
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(INSTALL);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1400);
+            } catch {
+              prompt("Copy:", INSTALL); // some webviews (Telegram's) block the clipboard
+            }
+          }}
+          className="cursor-pointer rounded-[8px] px-2.5 py-1 text-[12px] tracking-[0.08em] text-white/55 uppercase transition-colors hover:bg-white/10 hover:text-white"
+        >
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <InstallLink
+          href={NPM}
+          title="npm package"
+          sub="prometheus-arkiv"
+          icon={<Package className="size-4.5 text-accent" />}
+        />
+        <InstallLink
+          href={REPO}
+          title="GitHub"
+          sub="VanshChitransh/Prometheus"
+          icon={
+            <svg viewBox="0 0 16 16" className="size-4.5" aria-hidden>
+              <path
+                fill="currentColor"
+                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+              />
+            </svg>
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
+function InstallLink({
+  href,
+  title,
+  sub,
+  icon,
+}: {
+  href: string;
+  title: string;
+  sub: string;
+  icon: ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="flex items-center gap-3 rounded-[14px] border border-sep bg-cell p-3 transition-colors hover:border-ink-3"
+    >
+      <span className="grid size-10 shrink-0 place-items-center rounded-[10px] border border-sep bg-float text-ink">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-mono text-[13px] tracking-[0.06em] uppercase">
+          {title}
+        </span>
+        <span className="block truncate font-mono text-[12.5px] text-ink-3">
+          {sub}
+        </span>
+      </span>
+    </a>
   );
 }
 
@@ -853,6 +968,96 @@ function Questions() {
             </details>
           ))}
         </div>
+      </Frame>
+    </section>
+  );
+}
+
+// --- 8. Newsletter (relay POST /subscribe; the address stays in its SQLite, never on Arkiv) ---
+
+const SUBSCRIBE_URL = __RELAY_URL__
+  ? `${__RELAY_URL__.replace(/\/$/, "")}/subscribe`
+  : "";
+
+function Subscribe() {
+  const [email, setEmail] = useState("");
+  const [state, setState] = useState<"idle" | "sending" | "done">("idle");
+  const [error, setError] = useState<string>();
+  if (!SUBSCRIBE_URL) return null;
+
+  const send = async (e: React.FormEvent) => {
+    e.preventDefault(); // the browser already checked type="email" before this runs
+    setState("sending");
+    setError(undefined);
+    try {
+      const r = await fetch(SUBSCRIBE_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      if (r.ok) return setState("done");
+      const body = (await r.json().catch(() => ({}))) as { error?: string };
+      setError(body.error ?? "That didn't go through. Try again.");
+    } catch {
+      setError("Couldn't reach the server. Try again.");
+    }
+    setState("idle");
+  };
+
+  return (
+    <section className="border-t border-sep">
+      <Frame className="grid grid-cols-1 gap-10 px-5 py-20 sm:px-10 lg:grid-cols-[1fr_1.6fr] lg:items-end lg:py-28">
+        <div>
+          <Eyebrow>Newsletter</Eyebrow>
+          <H2 className="mt-5 max-w-[16ch]">Subscribe to Prometheus notes.</H2>
+          <p className="mt-4 max-w-[46ch] text-[17px] leading-[1.55] text-ink-2">
+            New triggers, SDK releases and what we learn running workers on
+            Arkiv.
+          </p>
+        </div>
+        {state === "done" ? (
+          <p className="flex items-center gap-2 text-[16px] font-medium">
+            <Check className="size-5 text-ok" /> You're on the list. Thanks.
+          </p>
+        ) : (
+          <form onSubmit={send}>
+            <label
+              htmlFor="newsletter-email"
+              className="font-mono text-[12px] tracking-[0.06em] text-ink-3 uppercase"
+            >
+              Email
+            </label>
+            <div className="mt-2 flex flex-col gap-3 sm:flex-row">
+              <input
+                id="newsletter-email"
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="h-12 w-full min-w-0 rounded-full sm:flex-1 bg-page px-5 text-[16px] shadow-[inset_0_0_0_1px_var(--sep)] transition-shadow outline-none placeholder:text-ink-3 focus:shadow-[inset_0_0_0_2px_var(--accent)]"
+              />
+              <Button
+                type="submit"
+                size="lg"
+                variant="secondary"
+                disabled={state === "sending"}
+                className="rounded-full font-mono text-[14px] tracking-[0.04em] uppercase"
+              >
+                <Mail className="size-4" />
+                {state === "sending" ? "Subscribing…" : "Subscribe"}
+              </Button>
+            </div>
+            <div className="mt-3 min-h-5 text-[13px] text-ink-2">
+              {error ? (
+                <ErrorText error={error} />
+              ) : (
+                "A short note when something ships. No spam, and we never put your email on chain."
+              )}
+            </div>
+          </form>
+        )}
       </Frame>
     </section>
   );

@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS follows  (chat_id INTEGER, sub_key TEXT, created_at I
 CREATE TABLE IF NOT EXISTS sponsors (tg_user_id INTEGER PRIMARY KEY, address TEXT UNIQUE,
                                      amount_wei TEXT, tx TEXT, created_at INTEGER);
 CREATE TABLE IF NOT EXISTS delivered (trigger_id TEXT PRIMARY KEY, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS newsletter (email TEXT PRIMARY KEY, created_at INTEGER);
 `;
 
 export type Db = ReturnType<typeof openDb>;
@@ -54,6 +55,10 @@ export function openDb(path: string, now: () => number = Date.now) {
     "SELECT amount_wei FROM sponsors WHERE created_at >= ?",
   );
   const delSponsor = db.prepare("DELETE FROM sponsors WHERE tg_user_id = ?");
+  const insEmail = db.prepare(
+    "INSERT OR IGNORE INTO newsletter (email, created_at) VALUES (?, ?)",
+  );
+  const countEmails = db.prepare("SELECT count(*) AS n FROM newsletter");
   const updSponsorTx = db.prepare(
     "UPDATE sponsors SET tx = ? WHERE tg_user_id = ?",
   );
@@ -113,6 +118,13 @@ export function openDb(path: string, now: () => number = Date.now) {
       return selSponsored
         .all(sec() - DAY)
         .reduce((sum, r) => sum + BigInt(r.amount_wei as string), 0n);
+    },
+    // Lowercased so You@x.com and you@x.com are one subscriber; a repeat is a silent no-op.
+    addSubscriber(email: string) {
+      insEmail.run(email.toLowerCase(), sec());
+    },
+    subscriberCount(): number {
+      return Number(countEmails.get()!.n);
     },
     close() {
       db.close();
