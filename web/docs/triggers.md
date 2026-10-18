@@ -51,7 +51,7 @@ Past the cap, no receipt is written. An `expiring` or `expired` alert is offered
 
 **Edge cases:**
 
-- **A warning time longer than the time left fires at once.** If the target expires in 5 minutes and you ask for 1 hour of warning, the trigger block is already in the past. The receipt's lateness counts from that earlier block, so it shows as late even though it went out at once. Both workers can act in the same moment here, so the Coverage page may show it as delivered twice. You still get one DM.
+- **A warning time longer than the time left fires at once.** If the target expires in 5 minutes and you ask for 1 hour of warning, the trigger block is already in the past. The receipt's lateness counts from that earlier block, so it shows as late even though it went out at once. Both workers can act in the same moment here, so the Activity page may show it as delivered twice. You still get one DM.
 - **A renewal re-arms the warning.** The target's expiry is part of the trigger, so each new expiry is a new trigger. You get a fresh warning before each one.
 - **The target must exist** when a worker adds your subscription. If it doesn't, the subscription is rejected.
 
@@ -68,7 +68,7 @@ Past the cap, no receipt is written. An `expiring` or `expired` alert is offered
 **Edge cases:**
 
 - **A delete isn't an expiry.** A target that's deleted gets no `expired` receipt. Use `changed` to hear about deletes.
-- **The target may already be gone.** `expired` is the only trigger that accepts a target that no longer exists. If it expired within the last 43,200 blocks (1 day), the worker finds its real expiry block in the chain's logs and writes the receipt. Past that, no receipt is written.
+- **The target may already be gone.** `expired` is the only trigger that accepts a target that no longer exists. The worker finds its real expiry block in the chain's logs and writes the receipt, but only if it was created or last renewed within the last 43,200 blocks (1 day). Past that, no receipt is written.
 - **Workers that were down catch up.** At startup, a worker looks up targets that expired while it was away, using the same 1-day window.
 
 ## changed
@@ -130,7 +130,7 @@ No `target_key`: you describe what to watch with a search instead.
 - **New entities only, not edits.** A patch that makes an existing entity match your search isn't seen.
 - **Prometheus's own writes don't count.** Entities created by trusted worker wallets, such as receipts, are skipped, so a search can't fire on its own receipts.
 - **At most 50 `new_match` subscriptions** are checked for each created entity, oldest first.
-- **Entities created while a worker was down are still matched** when it replays the missed blocks. The match is checked against the entity as it is now, because Arkiv's count call can't look at a past block.
+- **Entities created while a worker was down are still matched** when it replays the missed blocks. The match is checked against the entity as it is now: the worker doesn't yet pin the count to the creation block (`arkiv_getEntityCount` accepts `block`).
 
 ## keep
 
@@ -168,9 +168,9 @@ No `target_key`: you describe what to watch with a search instead.
 - **Canaries and heartbeats are never kept.** A canary or heartbeat is meant to expire when its owner stops, so renewing it would hide that silence. The worker refuses any target whose `kind` or `project` contains `canary`, `heartbeat`, `liveness`, `deadman`, `keepalive` or `watchdog`, with or without a separator, in any case. This is a guess by name: nothing on chain marks an entity as a canary. Your real protection is to create a canary without `permissionlessExtension`, so no one but you can renew it.
 - **Only targets that allow anyone to renew.** On Arkiv, someone other than the owner can renew an entity only if it was created with the `permissionlessExtension` flag. Without it, you get `keep_skipped` with `not_permissionless`.
 - **Prometheus's own entities are never kept,** including subscriptions. Two public subscriptions keeping each other alive would never end.
-- **No double renewals.** Both workers compute the same new expiry block. If both send, the second is a no-op on the node: it costs gas but doesn't extend twice.
+- **No double renewals.** Both workers compute the same new expiry block. The second worker re-reads the target first, sees it already renewed, and records `keep_skipped` with `already_extended`. If both send at once, both set the same expiry, so the target is still renewed once.
 - **Keeps don't use `max_per_day`.** Skipping a keep would let the target lapse. Each worker has its own limit instead: 200 renewals per UTC day.
-- **`budget` and `keeper_low_funds` are about one worker, not the trigger.** Each gets its own trigger id, so the other worker can still renew. The worker that hit the limit writes the receipt once and keeps trying, so a refill or a new day still renews. The relay doesn't send `keeper_low_funds` as a DM: it's a message for the worker's operator, and the Coverage page shows it as "Low on funds".
+- **`budget` and `keeper_low_funds` are about one worker, not the trigger.** Each gets its own trigger id, so the other worker can still renew. The worker that hit the limit writes the receipt once and keeps trying, so a refill or a new day still renews. The relay doesn't send `keeper_low_funds` as a DM: it's a message for the worker's operator, and the Activity page shows it as "Low on funds".
 - **Keeps stop when your subscription expires.** Renew the subscription to keep going.
 
 ## Next

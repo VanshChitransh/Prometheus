@@ -26,14 +26,14 @@ Prometheus keeps all of its state on Arkiv as three kinds of entity: subscriptio
 
 ## Wallets that create entities
 
-| Role            | Address                                      | Creates                                  |
-| --------------- | -------------------------------------------- | ---------------------------------------- |
-| Worker A        | `0x6a693Fd642c1F8F5E78321C2722208A3791eE79B` | `worker`, `receipt`                      |
-| Worker B        | `0xa70C8245582d173b04cAe453E9fF6D17a6e58294` | `worker`, `receipt`                      |
-| Demo publisher  | `0x07df075e19C8682E0BbF4D1B018BA3Ab8fD174F2` | the demo entities that get watched       |
-| Demo subscriber | `0xa286a6fc7bF81CE5A18cFB52CF9C2040724aC8Ee` | demo `subscription`s                     |
-| Any user        | their own wallet                             | `subscription`                           |
-| Sponsor (relay) | `0x64E80982DEEfe1296CfD6483A30Fd4a46EbA7C22` | nothing; it only sends small GLM top-ups |
+| Role            | Address                                      | Creates                                                                                                        |
+| --------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Worker A        | `0x6a693Fd642c1F8F5E78321C2722208A3791eE79B` | `worker`, `receipt`                                                                                            |
+| Worker B        | `0xa70C8245582d173b04cAe453E9fF6D17a6e58294` | `worker`, `receipt`                                                                                            |
+| Demo publisher  | `0x07df075e19C8682E0BbF4D1B018BA3Ab8fD174F2` | the demo entities that get watched                                                                             |
+| Demo subscriber | `0xa286a6fc7bF81CE5A18cFB52CF9C2040724aC8Ee` | demo `subscription`s                                                                                           |
+| Any user        | their own wallet                             | `subscription`                                                                                                 |
+| Sponsor (relay) | `0x64E80982DEEfe1296CfD6483A30Fd4a46EbA7C22` | no entities in normal operation (three test subscriptions from 18 Oct remain); it only sends small GLM top-ups |
 
 The entity a subscription watches is called the target. It can be any entity on Arkiv, from any app. Prometheus reads it and, for the `keep` trigger, renews it, but never writes its data.
 
@@ -165,7 +165,7 @@ const triggerId = keccak256(
 
 Every input is public, so every worker computes the same id for the same trigger. "Did a worker already do this?" becomes one free count (query 2 below).
 
-- For a `keep` trigger, `event` is `"keep"`, not the outcome. Every outcome of one trigger shares one id, so worker A and worker B never both act on it.
+- For a `keep` trigger, `event` is `"keep"`, not the outcome. Every outcome of one trigger shares one id, so the second worker sees the first's receipt and skips.
 - Two outcomes are about one worker, not the trigger, so each gets its own id and the other worker can still act: `keeper_low_funds` (built with event `keeper_low_funds`) and `keep_skipped` with note `budget` (built with event `keep_skipped`).
 
 ### Payload
@@ -197,7 +197,7 @@ A worker sets every attribute.
 | -------------- | ----- | ------------------------------------------------------------------------------------------------- |
 | `project`      | `str` | `prometheus`                                                                                      |
 | `kind`         | `str` | `worker`                                                                                          |
-| `version`      | `str` | `0.1.0`                                                                                           |
+| `version`      | `str` | the deployed git commit (`GIT_SHA`), e.g. `9182ae9`; `dev` locally                                |
 | `operator`     | `str` | `team-a` when `delay_blocks` is 0, otherwise `team-b`. A label only; trust comes from `$creator`. |
 | `delay_blocks` | `u64` | how many blocks this worker waits before acting: `0` for worker A, `15` for worker B              |
 
@@ -212,11 +212,11 @@ A worker sets every attribute.
 - **Flags:** none. Only the worker renews it.
 - **Lifetime:** 30 minutes. The worker renews it to 30 minutes from now every 10 minutes.
 - **Why:** the expiry is the health check. If a worker stops, it stops renewing, and its entity disappears within 30 minutes. Renewing three times per lifetime survives two missed renewals.
-- **Signed by:** the worker wallet, once at first start. The worker saves the entity key in `state/worker-key-<address>.json` and reuses it after a restart if the entity is still live.
+- **Signed by:** the worker wallet, at first start. The worker saves the entity key in `state/worker-key-<address>.json` and reuses it after a restart if the entity is still live and the commit is unchanged.
 
 ## Queries
 
-"Free" means the node returns no `arkiv-cost` header for the call (measured 16 Oct 2026). `arkiv_query` costs 100 units, about 1% of an access key's quota, so Prometheus keeps paid queries off every hot path.
+"Free" means the node returns no `arkiv-cost` header for the call (measured 16 Oct 2026). `arkiv_query` costs 100 units: 1% of the anonymous budget (10,000 units per IP per window), so Prometheus keeps paid queries off every hot path.
 
 `TRUSTED` in the queries below is this clause, for the live deployment:
 
@@ -262,7 +262,7 @@ project = str('prometheus') AND kind = str('receipt') AND subscription = key(<su
 
 ### 5. Coverage for the last 24 hours
 
-Web app, coverage page. `arkiv_query` (paid).
+Web app, Activity page (`/activity`). `arkiv_query` (paid).
 
 ```text
 project = str('prometheus') AND kind = str('receipt') AND trigger_block >= u64(<head − 43200>) AND TRUSTED
@@ -278,10 +278,10 @@ project = str('prometheus') AND kind = str('subscription') AND $creator = addr(<
 
 ### 7. Live workers
 
-Relay and web app. `arkiv_getEntityCount` (free).
+Relay and web app, one count per worker. `arkiv_getEntityCount` (free).
 
 ```text
-project = str('prometheus') AND kind = str('worker') AND TRUSTED
+project = str('prometheus') AND kind = str('worker') AND $creator = addr(<worker address>)
 ```
 
 ### Why queries 2 and 3 must carry `TRUSTED`

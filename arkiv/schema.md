@@ -14,14 +14,14 @@ Network: Tiramisu testnet. SDK: `@arkiv-network/sdk` 0.8.1.
 
 ## Wallets that create entities
 
-| Role            | Address                                      | Creates                            |
-| --------------- | -------------------------------------------- | ---------------------------------- |
-| Worker A        | `0x6a693Fd642c1F8F5E78321C2722208A3791eE79B` | `worker`, `receipt`                |
-| Worker B        | `0xa70C8245582d173b04cAe453E9fF6D17a6e58294` | `worker`, `receipt`                |
-| Demo publisher  | `0x07df075e19C8682E0BbF4D1B018BA3Ab8fD174F2` | the demo target entities           |
-| Demo subscriber | `0xa286a6fc7bF81CE5A18cFB52CF9C2040724aC8Ee` | demo `subscription`s               |
-| Any user        | their own wallet                             | `subscription`                     |
-| Sponsor (relay) | `0x64E80982DEEfe1296CfD6483A30Fd4a46EbA7C22` | nothing; it only sends GLM top-ups |
+| Role            | Address                                      | Creates                                                                                                  |
+| --------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Worker A        | `0x6a693Fd642c1F8F5E78321C2722208A3791eE79B` | `worker`, `receipt`                                                                                      |
+| Worker B        | `0xa70C8245582d173b04cAe453E9fF6D17a6e58294` | `worker`, `receipt`                                                                                      |
+| Demo publisher  | `0x07df075e19C8682E0BbF4D1B018BA3Ab8fD174F2` | the demo target entities                                                                                 |
+| Demo subscriber | `0xa286a6fc7bF81CE5A18cFB52CF9C2040724aC8Ee` | demo `subscription`s                                                                                     |
+| Any user        | their own wallet                             | `subscription`                                                                                           |
+| Sponsor (relay) | `0x64E80982DEEfe1296CfD6483A30Fd4a46EbA7C22` | no entities in normal operation (three test subscriptions from 18 Oct remain); it only sends GLM top-ups |
 
 ## The three entities at a glance
 
@@ -39,7 +39,7 @@ erDiagram
     WORKER {
         str project "prometheus"
         str kind "worker"
-        str version "0.1.0"
+        str version "deployed git commit"
         str operator "label only"
         u64 delay_blocks "0 for A, 15 for B"
     }
@@ -65,27 +65,27 @@ erDiagram
     }
 ```
 
-| Entity         | Lifetime                        | Flags                                 | Why that lifetime                                   |
-| -------------- | ------------------------------- | ------------------------------------- | --------------------------------------------------- |
-| `worker`       | 30 min, extended every 10 min   | none                                  | expiry is the health check: a dead worker vanishes  |
-| `subscription` | 1, 7 or 30 days (user's choice) | `permissionlessExtension` if opted in | a forgotten subscription ends on its own            |
-| `receipt`      | 30 days                         | `readonly`                            | a month of auditable history, then it cleans itself |
+| Entity         | Lifetime                                                     | Flags                                 | Why that lifetime                                   |
+| -------------- | ------------------------------------------------------------ | ------------------------------------- | --------------------------------------------------- |
+| `worker`       | 30 min, extended every 10 min                                | none                                  | expiry is the health check: a dead worker vanishes  |
+| `subscription` | 1, 7 or 30 days in the web app; any duration through the SDK | `permissionlessExtension` if opted in | a forgotten subscription ends on its own            |
+| `receipt`      | 30 days                                                      | `readonly`                            | a month of auditable history, then it cleans itself |
 
 ## `worker`: "I am alive"
 
-| Attribute      | Type | Example                                      |
-| -------------- | ---- | -------------------------------------------- |
-| `project`      | str  | `prometheus`                                 |
-| `kind`         | str  | `worker`                                     |
-| `version`      | str  | `0.1.0`                                      |
-| `operator`     | str  | `team-a` (a label only; trust is `$creator`) |
-| `delay_blocks` | u64  | `0` for A, `15` for B                        |
+| Attribute      | Type | Example                                                            |
+| -------------- | ---- | ------------------------------------------------------------------ |
+| `project`      | str  | `prometheus`                                                       |
+| `kind`         | str  | `worker`                                                           |
+| `version`      | str  | the deployed git commit (`GIT_SHA`), e.g. `9182ae9`; `dev` locally |
+| `operator`     | str  | `team-a` (a label only; trust is `$creator`)                       |
+| `delay_blocks` | u64  | `0` for A, `15` for B                                              |
 
 - **Payload:** `{ name, url, triggers: ["expiring","expired","changed","new_match","keep"] }`
 - **Flags:** none. Only its owner (the worker) extends it.
-- **Lifetime:** 30 minutes, extended by 30 minutes every 10 minutes.
+- **Lifetime:** 30 minutes, reset to 30 minutes from now, every 10 minutes.
 - **Why:** expiry _is_ the health check. If a worker dies, it stops extending, and its entity disappears from Arkiv within 30 minutes with no extra code. A 3x margin (10 vs 30 minutes) survives two missed heartbeats.
-- **Creator:** the worker wallet, once at first boot.
+- **Creator:** the worker wallet, at first boot. A restart reuses the entity only if it is still live and the commit is unchanged; otherwise the worker creates a new one.
 
 ## `subscription`: "watch this entity for me"
 
@@ -102,7 +102,7 @@ erDiagram
 
 - **Payload:** `{ v: 1, label }`, plus `search: <AST>` for `new_match` (a JSON tree, never a raw query string).
 - **Flags:** `permissionlessExtension` only when the user ticks "anyone can renew". Otherwise none.
-- **Lifetime:** 1, 7 or 30 days, chosen by the user. Renewing sets the expiry again from now.
+- **Lifetime:** 1, 7 or 30 days in the web app; any duration through the SDK. Renewing sets the expiry again from now.
 - **Why:** a subscription the user forgets about **ends on its own**. Workers stop serving it, and no one has to clean up.
 - **Creator:** the user, signed in their own browser. Workers never create subscriptions.
 
@@ -134,7 +134,7 @@ erDiagram
 
 `TRUSTED` below stands for `($creator = addr(<worker A>) OR $creator = addr(<worker B>))`.
 
-"Free" means the call returns no `arkiv-cost` header (measured 16 Oct, see [friction.md](friction.md)). `arkiv_query` costs 100 units, about 1% of a key's quota, so paid queries are kept off every hot path.
+"Free" means the call returns no `arkiv-cost` header (measured 16 Oct, see [friction.md](friction.md)). `arkiv_query` costs 100 units: 1% of the anonymous budget (10,000 units per IP per window), so paid queries are kept off every hot path.
 
 | #   | Purpose                                       | Who             | Call                          | Query                                                                                                                                       |
 | --- | --------------------------------------------- | --------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -144,7 +144,7 @@ erDiagram
 | 4   | Receipts for one subscription                 | web `/s/:key`   | `arkiv_query` (paid)          | `project = str('prometheus') AND kind = str('receipt') AND subscription = key(<sub>) AND TRUSTED`                                           |
 | 5   | Coverage (last 24 h)                          | web `/activity` | `arkiv_query` (paid)          | `project = str('prometheus') AND kind = str('receipt') AND trigger_block >= u64(<head − 43200>) AND TRUSTED`                                |
 | 6   | My subscriptions                              | web `/mine`     | `arkiv_query` (paid)          | `project = str('prometheus') AND kind = str('subscription') AND $creator = addr(<user>)`                                                    |
-| 7   | Live workers                                  | relay, web      | `arkiv_getEntityCount` (free) | `project = str('prometheus') AND kind = str('worker') AND TRUSTED`                                                                          |
+| 7   | Live workers (one count per worker)           | relay, web      | `arkiv_getEntityCount` (free) | `project = str('prometheus') AND kind = str('worker') AND $creator = addr(<worker>)`                                                        |
 
 Notes:
 

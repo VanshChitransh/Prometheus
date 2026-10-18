@@ -9,7 +9,7 @@ This page takes you from opening the bot to your first alert. You'll create a wa
 ## What you need
 
 - Telegram on your phone or computer.
-- The key of the Arkiv entity you want to watch. Arkiv is a database where every entry, called an **entity**, has an expiry date. An entity's **key** is its address: `0x` followed by 64 hex characters. You don't need to own the entity. If you don't have a key yet, the app can pick a live example for you.
+- The key of the Arkiv entity you want to watch. Arkiv is a database where every entry, called an **entity**, has an expiry date. An entity's **key** is its address: `0x` followed by 64 hex characters. You don't need to own the entity.
 
 ## 1. Open the bot
 
@@ -31,22 +31,22 @@ Telegram stores the wallet's key on your device. On iPhone and Android it uses T
 
 ## 3. Choose what to watch
 
-1. Paste the entity key into **Paste an entity key, 0x…** on the home screen. To use a live example instead, tap **Try a live example**.
-2. Tap **Watch it**.
-3. Under **What should happen**, pick one:
+Tap **New** (the + tab) or **Try it yourself** on the home screen. The form has four steps. Tap **Continue** after each one.
+
+1. Under **What should happen**, pick one:
    - **Warn me before it expires**
    - **Tell me when it has expired**
    - **Tell me when it changes** (edits, a new owner, or deletion)
    - **Keep it alive** (Prometheus renews it before it expires)
    - **Tell me about new matching records**
-4. Under **Timing**, set **Warn me this long before** (from 1 minute to 1 day) and **The subscription runs for** (1, 7 or 30 days).
-5. Under **Details**, write a **Label**. It's how you'll recognise the alert.
+2. Under **What to watch**, paste the entity key into the **0x…** field, or tap **Paste**. For new matching records, this step asks for an example record instead.
+3. Under **Timing**, set **Keep watching for** (1, 7 or 30 days). A warning also asks **Warn me this long before** (from 1 minute to 1 day). **Keep it alive** asks **Renew this long before it expires** and **Add this much each time**.
 
 The form checks your choices against the workers' own rules as you type. When everything is right, it says **Workers will accept this subscription.** If it says the subscription ends before the entity expires, choose a longer term: a subscription that has ended sends nothing.
 
-## 4. Sign
+## 4. Name it and sign
 
-Tap **Sign and create**. The Mini App signs with the wallet Telegram stores, so there's no extra prompt.
+Under **Name it and sign**, write a **Label**. It's how you'll recognise the alert. Then tap **Sign and create**. The Mini App signs with the wallet Telegram stores, so there's no extra prompt.
 
 You'll see **Subscription created**. Your subscription is now an entity on Arkiv, owned by your wallet, and workers pick it up within a block.
 
@@ -68,7 +68,7 @@ You can follow any live subscription, not just your own. Every subscription's st
 
 ## What an alert looks like
 
-Each alert names what happened and links to the entity and to its receipt on the Arkiv explorer. A **receipt** is the public record a **worker** (one of the two Prometheus programs that watch Arkiv) writes each time it acts. Receipts can't be rewritten; deletion is publicly logged.
+Each alert names what happened and links to the subscription's status page, and to the entity and its receipt on the Arkiv explorer. A **receipt** is the public record a **worker** (one of the two Prometheus programs that watch Arkiv) writes each time it acts. Receipts can't be rewritten; deletion is publicly logged.
 
 A warning before expiry:
 
@@ -76,6 +76,7 @@ A warning before expiry:
 🟠 EXPIRING SOON · Acme canary
 Block 1234567.
 
+Status: <site>/s/0x…
 Target: https://tiramisu.explorer.arkiv.network/entity/0x…
 Receipt: https://tiramisu.explorer.arkiv.network/entity/0x…
 Tx: https://tiramisu.explorer.arkiv.network/tx/0x…

@@ -226,7 +226,7 @@ Workers don't tell you when they reject a subscription. They skip it and move on
 
 ### In your code
 
-The workers' rules live in one function, `decodeSubscription`, in the [repo](https://github.com/VanshChitransh/Prometheus) (MIT). Copy `shared/schema.ts`, `shared/subscription.ts`, `shared/searchAst.ts` and `shared/arkiv.ts` into your project, for example into `prometheus/`. They import each other with `.ts` extensions, as the repo does, and need `@arkiv-network/sdk` and `viem`.
+The workers' rules live in one function, `decodeSubscription`, in the [repo](https://github.com/VanshChitransh/Prometheus) (MIT). Copy `shared/schema.ts`, `shared/subscription.ts`, `shared/searchAst.ts` and `shared/arkiv.ts` into your project, for example into `prometheus/`. They import each other with `.ts` extensions, as the repo does, and need `@arkiv-network/sdk` and `viem`. To type-check them, set `allowImportingTsExtensions` with `noEmit` in your `tsconfig.json`. To run them as they are, use Node 22.18 or later, which strips the types itself.
 
 Describe the subscription the way a worker will read it back, then decode it:
 
@@ -304,6 +304,7 @@ Open `<site>/s/<subscriptionKey>`. If workers reject the subscription, the page 
 | `payload must be JSON`                                               | Use `jsonToPayload({ ... })`.                                                                      |
 | `payload version must be v: 1`                                       | Add `v: 1` to the payload.                                                                         |
 | `label is required`                                                  | Add a non-empty `label`.                                                                           |
+| `label must be one line of at most 80 characters`                    | Keep the label to one line of 80 characters or fewer.                                              |
 | `search: …`, or an SDK error about an attribute name or value        | Fix the search. The message names the rule it broke, for example `search: more than 8 conditions`. |
 
 Workers also drop a subscription whose target doesn't exist (except `expired`), and every subscription past a wallet's oldest 20.

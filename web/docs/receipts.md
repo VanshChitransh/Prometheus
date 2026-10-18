@@ -74,7 +74,7 @@ See [Triggers](./triggers.md) for when each one fires and the `keep_skipped` rea
 
 **Lateness = `done_block − trigger_block`**, in blocks. Multiply by 2 for seconds.
 
-- The status page shows "on time" for a lateness of 0 or 1 block, and "N blocks late" otherwise.
+- The status page shows "on time" for a lateness of 0 or 1 block. Otherwise it shows the lateness as time, for example "30 s late" for 15 blocks.
 - A receipt from worker B is always at least 15 blocks (30 seconds) late. B waits that long, then acts only if no trusted worker has written the receipt yet. See [Workers and failover](./workers-and-failover.md).
 - `done_block` is the block when the worker decided to act. The receipt itself lands a little later: workers send receipts in batches, when 10 are waiting or every 5 blocks (10 seconds).
 - An `expiring` subscription whose warning time is longer than the time the target has left fires at once, but its `trigger_block` is in the past. That receipt shows as late even though it went out right away.
@@ -99,11 +99,11 @@ You need your subscription's key: the entity key Arkiv gave your subscription wh
 
 ### The status page
 
-Open `<site>/s/<key>`. The page reads your subscription and its receipts straight from Arkiv in your browser. It needs no relay and no worker, so it keeps working if they're down. Each receipt shows what happened, which worker acted, its lateness and a link to it on the explorer.
+Open `<site>/s/<key>`. The page reads your subscription and its receipts straight from Arkiv in your browser. It needs no relay and no worker, so it keeps working if they're down. Each receipt shows what happened, its lateness and a link to it on the explorer.
 
 ### Telegram
 
-Every DM from the relay links to the target, the receipt and the transaction on the explorer.
+Every DM from the relay links to the subscription's status page, and to the target, the receipt and the transaction on the explorer.
 
 ### The explorer
 
@@ -160,7 +160,7 @@ What no one can fake is `$creator`: Arkiv sets it to the wallet that signed the 
 
 - **Workers** count only trusted receipts when they check "did someone already act?" and when they count today's alerts. A forged receipt can't make both workers skip your alert or use up your daily cap.
 - **The relay** sends a DM only for receipts created by a trusted worker.
-- **The web app** shows only trusted receipts on the status and Coverage pages.
+- **The web app** shows only trusted receipts on the status and Activity pages.
 
 The trusted list is `TRUSTED_WORKERS`, set by whoever runs the relay and builds the site. If you query receipts yourself, always include the `$creator` filter. See [Trust model](./trust-model.md).
 

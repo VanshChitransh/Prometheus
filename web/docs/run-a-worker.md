@@ -65,14 +65,15 @@ See "Primary or backup" below for how to pick the delay.
 
 ### Every variable the worker reads
 
-| Variable              | File            | Required | Rule                                                                        | What it does                                                                                                                                                           |
-| --------------------- | --------------- | -------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ARKIV_HTTP`          | `.env`          | yes      | an `https://` URL                                                           | the RPC endpoint for reads and writes                                                                                                                                  |
-| `ARKIV_WS`            | `.env`          | yes      | a `wss://` URL                                                              | the live stream of blocks and entity events                                                                                                                            |
-| `TRUSTED_WORKERS`     | `.env`          | yes      | comma-separated `0x` addresses; a mixed-case one must have a valid checksum | the workers whose receipts count. It must include this worker's own address. List the primary (delay 0) first: the web app names workers A, B and so on in this order. |
-| `ARKIV_ACCESS_KEY`    | `.env.worker-a` | no       | empty means the anonymous quota                                             | sent as the `X-API-KEY` header on HTTP calls                                                                                                                           |
-| `WORKER_PRIVATE_KEY`  | `.env.worker-a` | yes      | `0x` and 64 hex characters                                                  | the wallet that signs receipts, renewals and the heartbeat                                                                                                             |
-| `WORKER_DELAY_BLOCKS` | `.env.worker-a` | yes      | a whole number of blocks; there is no default in the code                   | how long the worker waits before acting                                                                                                                                |
+| Variable              | File                                        | Required | Rule                                                                        | What it does                                                                                                                                                           |
+| --------------------- | ------------------------------------------- | -------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ARKIV_HTTP`          | `.env`                                      | yes      | an `https://` URL                                                           | the RPC endpoint for reads and writes                                                                                                                                  |
+| `ARKIV_WS`            | `.env`                                      | yes      | a `wss://` URL                                                              | the live stream of blocks and entity events                                                                                                                            |
+| `TRUSTED_WORKERS`     | `.env`                                      | yes      | comma-separated `0x` addresses; a mixed-case one must have a valid checksum | the workers whose receipts count. It must include this worker's own address. List the primary (delay 0) first: the web app names workers A, B and so on in this order. |
+| `ARKIV_ACCESS_KEY`    | `.env.worker-a`                             | no       | empty means the anonymous quota                                             | sent as the `X-API-KEY` header on HTTP calls                                                                                                                           |
+| `WORKER_PRIVATE_KEY`  | `.env.worker-a`                             | yes      | `0x` and 64 hex characters                                                  | the wallet that signs receipts, renewals and the heartbeat                                                                                                             |
+| `WORKER_DELAY_BLOCKS` | `.env.worker-a`                             | yes      | a whole number of blocks; there is no default in the code                   | how long the worker waits before acting                                                                                                                                |
+| `GIT_SHA`             | `.env.worker-a`, or `--build-arg` in Docker | no       | a git commit SHA, 7 to 40 lowercase hex characters; `dev` without it        | the `version` on your `worker` entity. A new value makes the worker create a new `worker` entity.                                                                      |
 
 The worker checks every variable when it starts and lists every problem at once. The messages never include the values, because some are secrets:
 
@@ -86,26 +87,28 @@ It also refuses to start if `TRUSTED_WORKERS` leaves out its own address, with `
 
 `.env.example` lists more variables. A worker doesn't read them:
 
-| Variable                                                    | Used by                          | Default                           |
-| ----------------------------------------------------------- | -------------------------------- | --------------------------------- |
-| `SPONSOR_PRIVATE_KEY`, `TELEGRAM_BOT_TOKEN`                 | relay                            | none, both required for the relay |
-| `RELAY_DB_PATH`                                             | relay                            | `state/relay.db`                  |
-| `PORT`                                                      | relay                            | `8080`                            |
-| `WEB_URL`                                                   | relay and the seed script        | none                              |
-| `DEMO_PUBLISHER_PRIVATE_KEY`, `DEMO_SUBSCRIBER_PRIVATE_KEY` | the seed script (`npm run seed`) | none                              |
-| `VITE_BOT_NAME`, `RELAY_PUBLIC_URL`                         | the web app build                | none                              |
+| Variable                                                    | Used by                                     | Default                                                              |
+| ----------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------- |
+| `SPONSOR_PRIVATE_KEY`, `TELEGRAM_BOT_TOKEN`                 | relay                                       | none, both required for the relay                                    |
+| `RELAY_DB_PATH`                                             | relay                                       | `state/relay.db`                                                     |
+| `PORT`                                                      | relay                                       | `8080`                                                               |
+| `WEB_URL`                                                   | relay and the seed script                   | none                                                                 |
+| `OPENROUTER_API_KEY`, `ASK_MODELS`, `ASK_DAILY_CAP`         | relay, for the docs assistant (`POST /ask`) | none (the assistant is off), the free models in `relay/ask.ts`, `45` |
+| `DEMO_PUBLISHER_PRIVATE_KEY`, `DEMO_SUBSCRIBER_PRIVATE_KEY` | the seed script (`npm run seed`)            | none                                                                 |
+| `WATCH_PRIVATE_KEY`                                         | the demo script `npm run watch-others`      | none                                                                 |
+| `VITE_BOT_NAME`, `RELAY_PUBLIC_URL`                         | the web app build                           | none                                                                 |
 
 ## 3. Fund the wallet
 
-The faucet at `https://hub.arkiv.network/faucet` needs a browser wallet sign-in and a CAPTCHA, and allows one claim per wallet per hour. There is no command-line or API route, so it can't fund a key that only lives in a file.
+The faucet at `https://hub.arkiv.network/faucet` needs a browser wallet sign-in and a CAPTCHA, and allows one claim per wallet per cooldown window (shown on the page). It has no command-line or API route, but it can still fund a key that only lives in a file: sign in with any browser wallet, paste the worker's address into **Send to** (it defaults to the signed-in wallet), and solve the CAPTCHA.
 
-The workaround: claim with a browser wallet such as MetaMask, then send GLM from it to the worker's address. You can send from the wallet's own screen, or with Foundry's `cast`:
+You can also send GLM from a wallet you already funded, from the wallet's own screen or with Foundry's `cast`:
 
 ```bash
 cast send --interactive --rpc-url https://rpc.tiramisu.db-chain.testnet.arkiv.network <your worker address> --value <amount>ether
 ```
 
-`--interactive` asks for the sending key at a prompt, so it stays out of your shell history. GLM has 18 decimals, so `1ether` means 1 GLM. A few GLM is enough to start. If the balance drops below 0.005 GLM, the worker stops renewing and writes a `keeper_low_funds` receipt instead, so you can see it on the Coverage page.
+`--interactive` asks for the sending key at a prompt, so it stays out of your shell history. GLM has 18 decimals, so `1ether` means 1 GLM. A few GLM is enough to start. If the balance drops below 0.005 GLM, the worker stops renewing and writes a `keeper_low_funds` receipt instead, so you can see it on the Activity page (`/activity`).
 
 Check the balance:
 
@@ -123,13 +126,13 @@ To run a second worker on the same machine, put its key and delay in `.env.worke
 
 ### With Docker
 
-The `Dockerfile` builds one image for the worker and the relay. It copies only `shared/`, `worker/` and `relay/`, so your `.env*` files and `state/` never end up in the image. Its default command starts the relay, so pass the worker's command.
+The `Dockerfile` builds one image for the worker and the relay. It copies only `shared/`, `worker/`, `relay/`, `web/docs/` and `web/src/docsMeta.ts` (the docs assistant answers from the last two), so your `.env*` files and `state/` never end up in the image. Its default command starts the relay, so pass the worker's command.
 
 A container doesn't read `.env`. Put all six worker variables in `.env.worker-a`, and write values without quotes: Docker's `--env-file` keeps quotes as part of the value.
 
 ```bash
-docker build -t prometheus .
-docker run -d --name prometheus-worker --restart unless-stopped --stop-timeout 10 \
+docker build --build-arg GIT_SHA=$(git rev-parse --short HEAD) -t prometheus .
+docker run -d --init --name prometheus-worker --restart unless-stopped --stop-timeout 10 \
   --env-file .env.worker-a \
   -v "$PWD/state/worker:/app/state" \
   prometheus node worker/index.ts
@@ -144,25 +147,26 @@ A healthy start logs these lines. `<…>` stands for values from your run.
 
 ```text
 [subs] <n> subscriptions, <n> rejected
-[startup] <n> targets: <n> live, <n> expired while away, <n> gone with no expiry in the last day; <n> subscriptions dropped (target not live)
+[startup] <n> targets: <n> live, <n> expired while away, <n> gone with no expiry in the last day; <n> subscriptions dropped (target not live), <n> over the per-creator cap
+[receipts] resumed <n> unsent receipts (<n> already on chain)
 [startup] <n> receipts so far today (since block <block>)
 [stream] replayed <n> blocks (<from> → <head>), live
 [heartbeat] worker entity live at <time>: <entity key> (owner <your address>)
 ```
 
-- `[subs]`: the worker found every valid subscription. Rejected ones are grouped by reason in brackets.
-- `[startup] … targets`: one free read per watched entity. Subscriptions whose target is gone are dropped, except `expired` ones.
+- `[subs]`: the worker found every valid subscription. If any were rejected, the line ends with each reason and its count in parentheses.
+- `[startup] … targets`: one free read per watched entity. Subscriptions whose target is gone are dropped, except `expired` ones. A creator's subscriptions past the oldest 20 are set aside.
+- `[receipts] resumed`: receipts left unsent by the last run are queued again. It prints on every restart once the worker has queued a receipt, usually with both numbers 0.
 - `[startup] … receipts so far today`: today's alert counts, rebuilt from receipts on Arkiv, so a restart doesn't reset `max_per_day`.
 - `[stream] … live`: the worker caught up from its checkpoint and now follows new blocks. On a first start it replays the last hour, about 1,800 blocks.
-- `[heartbeat] worker entity live`: the first start created your `worker` entity. After a restart you see `[heartbeat] reusing worker entity <key>` instead.
+- `[heartbeat] worker entity live`: the first start created your `worker` entity. After a restart you see `[heartbeat] reusing worker entity <key>` instead, but only if its `version` (`GIT_SHA`) hasn't changed. A redeploy of a new commit creates a new one.
 
 The `[stream]` and `[heartbeat]` lines can appear in either order. Later you also see:
 
-- `[receipts] resumed <n> unsent receipts (<n> already on chain)` after a restart that left receipts unsent.
 - `[events] subscription <key> added (<trigger>)` when someone creates a subscription.
 - `[resync] <n> subscriptions (+<added> −<dropped>, <n> kept from live events)` once an hour.
 
-Confirm your heartbeat from outside. This count returns `1` while your worker runs:
+Confirm your heartbeat from outside. This count returns `1` while your worker runs. After a redeploy it can read `2` for up to 30 minutes, until the old entity expires:
 
 ```bash
 curl -s https://rpc.tiramisu.db-chain.testnet.arkiv.network \
@@ -216,7 +220,7 @@ Never run two copies with the same key. They race for nonces.
 
 Your receipts are public on Arkiv the moment they land. Anyone can list them with `$creator = addr(<your worker address>)`, or open your address on the explorer at `https://tiramisu.explorer.arkiv.network/address/<your worker address>`.
 
-But trust comes from `$creator`. The Prometheus relay and website count only receipts from addresses in their `TRUSTED_WORKERS` list. Until your address is on it, the relay sends no DMs for your receipts and the coverage page doesn't show them. To be counted, either:
+But trust comes from `$creator`. The Prometheus relay and website count only receipts from addresses in their `TRUSTED_WORKERS` list. Until your address is on it, the relay sends no DMs for your receipts and the Activity page (`/activity`) doesn't show them. To be counted, either:
 
 - **Ask the operator to add your address** to `TRUSTED_WORKERS` on the relay, the web app build and the other workers. The workers need it too, so their "already done?" check sees your receipts and they don't repeat your work.
 - **Run your own relay and website** with a `TRUSTED_WORKERS` list that includes you. `compose.yaml` runs a worker and a relay together.
@@ -226,7 +230,7 @@ A renewal is different: when your worker renews a `keep` target, the new expiry 
 ## What it costs
 
 - **Receipts:** gas for each one. Workers send up to 50 per transaction.
-- **Renewals:** the keeper estimates about 25,500 gas at about 1 gwei per renewal. At most 200 per worker per UTC day. Below 0.005 GLM the worker stops renewing and writes `keeper_low_funds`.
+- **Renewals:** a renewal plus its receipt is one transaction, measured at 132,320 gas (about 0.00013 GLM at 1 gwei). At most 200 per worker per UTC day, about 0.026 GLM. Below 0.005 GLM the worker stops renewing and writes `keeper_low_funds`; that reserve covers about 37 renewals.
 - **Heartbeat:** one renewal of your `worker` entity every 10 minutes, 144 a day.
 - **Queries:** one paged `arkiv_query` at startup and once an hour, 100 units per page. Everything the worker does per block uses free calls.
 

@@ -6,7 +6,7 @@ status: live
 
 Watch [Arkiv](https://arkiv.network) entities from your code. Prometheus warns you before an entity expires, tells you when it has expired, changed or a new matching entity appears, or keeps it alive, and sends the alerts to Telegram.
 
-Every entity on Arkiv has an expiry block, and when it passes, the entity is deleted without a sound. A Prometheus **subscription** is an Arkiv entity, signed by your own wallet, that tells Prometheus's workers what to watch. This package builds it, checks it against the workers' own rules, and signs it. No API key, no backend.
+Every entity on Arkiv has an expiry block, and when it passes, the entity is deleted without a sound. A Prometheus **subscription** is an Arkiv entity, signed by your own wallet, that tells Prometheus's workers what to watch. This package builds it, checks it against the workers' own rules, and signs it. No API key, no server of your own.
 
 ## Install
 
@@ -14,7 +14,7 @@ Every entity on Arkiv has an expiry block, and when it passes, the entity is del
 npm i prometheus-arkiv @arkiv-network/sdk viem
 ```
 
-`@arkiv-network/sdk` (0.8.1 or later 0.8.x) and `viem` are peer dependencies. The network is Arkiv's Tiramisu testnet. Your wallet needs a little testnet GLM for gas: get some from the [faucet](https://hub.arkiv.network/faucet).
+The package is ESM only. `@arkiv-network/sdk` (0.8.1 or later 0.8.x) and `viem` are peer dependencies. The network is Arkiv's Tiramisu testnet. Your wallet needs a little testnet GLM for gas: get some from the [faucet](https://hub.arkiv.network/faucet).
 
 ## Quick start
 
@@ -51,9 +51,11 @@ Workers don't tell you when they reject a subscription: they skip it, and the al
 3. The target entity exists (not checked for `expired`: its target may already be gone).
 4. For `keep`: the target can be renewed by anyone and isn't a canary or heartbeat.
 5. Your wallet has fewer than 20 live subscriptions (workers serve only a wallet's oldest 20).
-6. Your wallet has GLM for the fee.
+6. Your wallet's GLM balance isn't zero.
 
 All of these reads are free.
+
+npm 0.1.0 predates the workers' label rule (one line, no control characters); 0.1.1 will match.
 
 ## Durations
 
@@ -85,11 +87,13 @@ Every `watch` method resolves to:
 }
 ```
 
+`statusUrl` links from npm 0.1.0 use `/#/s/`, which still opens the page.
+
 Every `watch` method takes `label` (required, 1 to 80 characters, shown in every alert), `for` (how long the subscription runs, default `"7d"`) and `public` (anyone may renew the subscription, default `false`).
 
 `notes` warns about choices that are valid but probably not what you want, for example "The subscription ends before the entity expires (in ~12 d). Pass a longer `for`." A subscription that has ended sends nothing.
 
-### `watch.expiring(target, { before, for?, label })`
+### `watch.expiring(target, { before, for?, label, public? })`
 
 Warns `before` the target expires: `"1m"` to `"1d"`. If the target is then renewed, you get a new warning before the new expiry. If it already has less than `before` left, the warning comes right away.
 
@@ -101,7 +105,7 @@ await prometheus.watch.expiring(target, {
 });
 ```
 
-### `watch.expired(target, { for?, label })`
+### `watch.expired(target, { for?, label, public? })`
 
 Tells you once the target has expired without being renewed. If it expired within the last day, the alert comes right away. A deletion isn't an expiry: use `changed` for that.
 
@@ -109,7 +113,7 @@ Tells you once the target has expired without being renewed. If it expired withi
 await prometheus.watch.expired(target, { for: "7d", label: "Canary gone" });
 ```
 
-### `watch.changed(target, { for?, label })`
+### `watch.changed(target, { for?, label, public? })`
 
 Tells you when the target is edited, changes owner or is deleted.
 
@@ -130,7 +134,7 @@ await prometheus.watch.keep(target, {
 });
 ```
 
-### `watch.newMatch({ where, createdBy?, for?, label })`
+### `watch.newMatch({ where, createdBy?, for?, label, public? })`
 
 Tells you when a new entity is created whose attributes equal everything in `where`. Strings match as `str`, a bigint as `u64`, `0x` + 40 hex as `addr` and `0x` + 64 hex as `key`. A plain number throws: write `4n`. `createdBy` limits it to entities created by one address. At most 8 conditions.
 
@@ -177,7 +181,7 @@ const { txHash } = await prometheus.cancel(sub.key);
 
 ### `get(subscriptionKey)`
 
-The subscription as workers decode it, or `null` once it has ended or been cancelled.
+The subscription as workers decode it, or `null` once it has ended or been cancelled. Throws `rejected` if workers would reject it.
 
 ```ts
 const s = await prometheus.get(sub.key);
@@ -196,7 +200,7 @@ for (const r of await prometheus.receipts(sub.key))
 
 ## Errors
 
-Every check throws a `PrometheusError` with a `code` and a sentence you can show a user. Network failures throw the underlying error unchanged.
+Every check throws a `PrometheusError` with a `code` and a sentence you can show a user. Network failures throw the underlying error; the free Arkiv reads (`arkiv_getEntity`, `arkiv_getEntityCount`) wrap it in an `RpcError` whose `cause` is the original.
 
 ```ts
 import { PrometheusError } from "prometheus-arkiv";
@@ -255,15 +259,16 @@ Pass a wallet client built from the user's browser wallet. The user signs; your 
 import { createWalletClient } from "@arkiv-network/sdk";
 import { tiramisu } from "@arkiv-network/sdk/chains";
 import { custom } from "viem";
+import { Prometheus } from "prometheus-arkiv";
 
-const [account] = await window.ethereum.request({
-  method: "eth_requestAccounts",
-});
+const ethereum = (window as any).ethereum;
+const [account] = await ethereum.request({ method: "eth_requestAccounts" });
 const wallet = createWalletClient({
   chain: tiramisu,
-  transport: custom(window.ethereum),
+  transport: custom(ethereum),
   account,
 });
+await wallet.addChain({ chain: tiramisu }); // adds Tiramisu if missing; MetaMask then asks to switch to it
 const prometheus = new Prometheus({ wallet });
 ```
 
