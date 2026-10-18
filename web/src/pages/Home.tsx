@@ -352,10 +352,24 @@ function AlertPreview({ on }: { on: boolean }) {
 
 // --- 2. What Arkiv lacks ---
 
+// Real entries from this buildathon (Nexora Ledger, Lapse, Door Ledger, SiteLog), checked in their repos.
 const EXAMPLES = [
-  ["A company stops renewing its warrant canary.", "No one notices for days."],
-  ["A booking ends.", "The app has no server to tell the user."],
-  ["A public record lapses.", "Its owner forgot to renew it."],
+  [
+    "Gig workers in India lose a pay record on Nexora Ledger.",
+    "Nobody pressed “Keep alive” in time.",
+  ],
+  [
+    "VPN users miss a dead warrant canary on Lapse.",
+    "Unless they run a checker in cron.",
+  ],
+  [
+    "Traders stuck behind an exchange halt hear nothing from Door Ledger.",
+    "Its alerts live in the author's private monitor.",
+  ],
+  [
+    "A construction defect on SiteLog vanishes after 90 quiet days.",
+    "Someone had to press “extend”.",
+  ],
 ];
 
 // The last word dissolves letter by letter, then comes back.
@@ -424,6 +438,12 @@ function Problem() {
             <p>
               But Arkiv sends no alert when it happens. If nobody checks, nobody
               finds out.
+            </p>
+            <p>
+              In this buildathon alone, <span className="text-ink">6 teams</span>{" "}
+              shipped a renew button someone has to remember to press, and{" "}
+              <span className="text-ink">6</span> built their own watcher. Here
+              is who loses out today.
             </p>
           </div>
           <Flatline />
