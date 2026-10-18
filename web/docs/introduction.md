@@ -16,6 +16,8 @@ Arkiv's own documentation says what happens next:
 
 So nothing tells you. If you run a warrant canary (a statement a company renews on schedule, so that silence is the warning), a booking or a heartbeat on Arkiv, the moment it expires is often the most important moment in your app, and it happens in silence. You only find out if you go and look.
 
+The people who lose out are real. In this buildathon, 6 teams shipped a renew button someone has to remember to press, and 6 built their own watcher. Gig workers in India lose pay records on Nexora Ledger when nobody presses "Keep alive". VPN users miss a dead warrant canary on Lapse or Arkiv Canary unless they run cron. Traders stuck behind an exchange halt only hear about it from Door Ledger if the author's private monitor tells them.
+
 Prometheus looks for you. Two independent programs, called **workers**, run on different hosts: worker A in New York and worker B in San Francisco. Both read every **block** (Arkiv's unit of time: one every 2 seconds) and act when something you asked about comes true. Worker A acts first; worker B waits 15 blocks (30 seconds) and acts only if A didn't.
 
 ## What you can ask for
