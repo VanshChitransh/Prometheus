@@ -16,6 +16,7 @@ import { openDb } from "./db.ts";
 import { startDelivery } from "./deliver.ts";
 import { createAsk, loadDocs, openRouterAnswer } from "./ask.ts";
 import { createHttpHandler } from "./http.ts";
+import { createSubscribe } from "./newsletter.ts";
 import { createSponsor } from "./sponsor.ts";
 
 const DAY_MS = 86_400_000;
@@ -127,10 +128,14 @@ const ask = cfg.openrouterKey
   : undefined;
 if (!ask) console.warn("[relay] OPENROUTER_API_KEY not set: POST /ask is off");
 
-const server = createServer(createHttpHandler({ sponsor, workersAlive, ask }));
+const subscribe = createSubscribe({ db });
+
+const server = createServer(
+  createHttpHandler({ sponsor, workersAlive, ask, subscribe }),
+);
 server.listen(cfg.port, () =>
   console.log(
-    `[relay] http on :${cfg.port} (GET /health, POST /sponsor, POST /ask)`,
+    `[relay] http on :${cfg.port} (GET /health, POST /sponsor, POST /ask, POST /subscribe)`,
   ),
 );
 
