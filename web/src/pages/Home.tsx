@@ -440,8 +440,9 @@ function Problem() {
               finds out.
             </p>
             <p>
-              In this buildathon alone, <span className="text-ink">6 teams</span>{" "}
-              shipped a renew button someone has to remember to press, and{" "}
+              In this buildathon alone,{" "}
+              <span className="text-ink">6 teams</span> shipped a renew button
+              someone has to remember to press, and{" "}
               <span className="text-ink">6</span> built their own watcher. Here
               is who loses out today.
             </p>
