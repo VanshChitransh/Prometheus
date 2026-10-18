@@ -386,3 +386,26 @@
   );
   background-size: 22px 22px;
 }
+
+/* Docs assistant (ui/AskPanel.tsx). At 1280px and up the page makes room for the docked panel instead of
+   hiding under it, and drops "On this page" so the article keeps a readable width. Narrower, it overlays. */
+@media (min-width: 1280px) {
+  body {
+    transition: padding-right 300ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  html.ask-open body {
+    padding-right: 464px; /* the 440px panel plus its 12px inset on each side */
+  }
+  html.ask-open .docs-toc {
+    display: none;
+  }
+  html.ask-open .docs-grid {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+}
+/* While the panel is open, the bar that opens it steps aside. */
+html.ask-open .ask-bar {
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+}
