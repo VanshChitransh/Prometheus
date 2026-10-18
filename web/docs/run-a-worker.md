@@ -155,7 +155,7 @@ A healthy start logs these lines. `<…>` stands for values from your run.
 ```
 
 - `[subs]`: the worker found every valid subscription. If any were rejected, the line ends with each reason and its count in parentheses.
-- `[startup] … targets`: one free read per watched entity. Subscriptions whose target is gone are dropped, except `expired` ones. A creator's subscriptions past the oldest 20 are set aside.
+- `[startup] … targets`: one free read per watched entity. Subscriptions whose target is gone are dropped, except `expired` ones, and `changed` ones until the hourly re-sync. A creator's subscriptions past the oldest 20 are set aside.
 - `[receipts] resumed`: receipts left unsent by the last run are queued again. It prints on every restart once the worker has queued a receipt, usually with both numbers 0.
 - `[startup] … receipts so far today`: today's alert counts, rebuilt from receipts on Arkiv, so a restart doesn't reset `max_per_day`.
 - `[stream] … live`: the worker caught up from its checkpoint and now follows new blocks. On a first start it replays the last hour, about 1,800 blocks.

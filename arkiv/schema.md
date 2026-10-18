@@ -14,14 +14,15 @@ Network: Tiramisu testnet. SDK: `@arkiv-network/sdk` 0.8.1.
 
 ## Wallets that create entities
 
-| Role            | Address                                      | Creates                                                                                                  |
-| --------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Worker A        | `0x6a693Fd642c1F8F5E78321C2722208A3791eE79B` | `worker`, `receipt`                                                                                      |
-| Worker B        | `0xa70C8245582d173b04cAe453E9fF6D17a6e58294` | `worker`, `receipt`                                                                                      |
-| Demo publisher  | `0x07df075e19C8682E0BbF4D1B018BA3Ab8fD174F2` | the demo target entities                                                                                 |
-| Demo subscriber | `0xa286a6fc7bF81CE5A18cFB52CF9C2040724aC8Ee` | demo `subscription`s                                                                                     |
-| Any user        | their own wallet                             | `subscription`                                                                                           |
-| Sponsor (relay) | `0x64E80982DEEfe1296CfD6483A30Fd4a46EbA7C22` | no entities in normal operation (three test subscriptions from 18 Oct remain); it only sends GLM top-ups |
+| Role            | Address                                      | Creates                                                                                                                                                |
+| --------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Worker A        | `0x6a693Fd642c1F8F5E78321C2722208A3791eE79B` | `worker`, `receipt`                                                                                                                                    |
+| Worker B        | `0xa70C8245582d173b04cAe453E9fF6D17a6e58294` | `worker`, `receipt`                                                                                                                                    |
+| Demo publisher  | `0x07df075e19C8682E0BbF4D1B018BA3Ab8fD174F2` | the demo target entities                                                                                                                               |
+| Demo subscriber | `0xa286a6fc7bF81CE5A18cFB52CF9C2040724aC8Ee` | demo `subscription`s                                                                                                                                   |
+| Any user        | their own wallet                             | `subscription`                                                                                                                                         |
+| Watch others    | `0x4887d10C82F2B7Bb199F1dcAB28585F751385094` | 9 watch-only `subscription`s on other teams' data (`npm run watch-others`)                                                                             |
+| Sponsor (relay) | `0x64E80982DEEfe1296CfD6483A30Fd4a46EbA7C22` | no entities in normal operation; it is also the team's own browser test wallet, so a few test subscriptions it signed exist; it only sends GLM top-ups |
 
 ## The three entities at a glance
 

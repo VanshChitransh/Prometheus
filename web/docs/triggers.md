@@ -27,7 +27,7 @@ A subscription is an entity your wallet creates. Workers read its attributes and
 | `trigger`     | str  | yes      | `expiring`, `expired`, `changed`, `new_match` or `keep` |
 | `max_per_day` | u64  | no       | 1 to 100 alerts per UTC day; 20 if you leave it out     |
 
-- **Payload:** JSON `{ "v": 1, "label": "..." }`. The label is required and can't be blank. It's public, so don't put personal data in it.
+- **Payload:** JSON `{ "v": 1, "label": "..." }`. The label is required, can't be blank, and is at most 80 characters. It's public, so don't put personal data in it.
 - **Number types:** every number must be stored as a `u64`. An `i32` or `u256` attribute is rejected even if the value is in range, because workers query these fields as `u64`.
 - **Lifetime:** the web app offers 1, 7 or 30 days. Once a subscription expires, workers stop acting on it.
 - **Per wallet:** workers serve your 20 oldest subscriptions. Newer ones beyond 20 are ignored.

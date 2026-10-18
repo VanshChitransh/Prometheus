@@ -25,13 +25,13 @@ A **wallet** is a key that signs things on Arkiv. Your subscription is signed by
 2. Tap your new address at the top to open the wallet menu.
 3. Tap **Get free GLM to start**.
 
-Telegram stores the wallet's key on your device. On iPhone and Android it uses Telegram's secure storage (the iOS Keychain or the Android Keystore). On Telegram Desktop and Web it uses Telegram's storage on that device. The key never leaves your device, and the wallet menu has **Export key** if you want a copy.
+Telegram stores the wallet's key on your device. On iPhone and Android it uses Telegram's secure storage (the iOS Keychain or the Android Keystore). On Telegram Desktop and Web it uses Telegram's storage on that device. On older Telegram versions it uses the app's browser storage. The key never leaves your device, and the wallet menu has **Export key** if you want a copy.
 
 **GLM** is the testnet token that pays the small fee for each signed action. The relay sends 0.02 GLM to a new wallet once per Telegram account, and only to a wallet holding less than 0.01 GLM. If you see "Today's free GLM is used up. Try the faucet.", get free GLM from the [faucet](https://hub.arkiv.network/faucet) instead.
 
 ## 3. Choose what to watch
 
-Tap **New** (the + tab) or **Try it yourself** on the home screen. The form has four steps. Tap **Continue** after each one.
+Tap **New** (the + tab) or **Try it yourself** on the home screen. The form has four steps. Tap **Continue** after each of the first three.
 
 1. Under **What should happen**, pick one:
    - **Warn me before it expires**
@@ -126,7 +126,7 @@ Stop one with /stop <number>.
 
 ```text
 /stop 2
-Stopped following 0x5e6f7a8b…
+Stopped following 0x5e6f7a8b….
 ```
 
 Stopping only stops the messages to you. The subscription itself keeps running until it ends, or until you cancel it on the **Subscriptions** tab of the Mini App.

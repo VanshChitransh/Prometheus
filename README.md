@@ -164,7 +164,7 @@ Every subscription picks exactly one **trigger**:
 **`keep`**
 
 - Works only on entities created with `permissionlessExtension: true` (Arkiv's rule for non-owner renewals).
-- **Never renews canaries or heartbeats.** Their expiry _is_ the signal. Any target whose `kind` or `project` contains `canary`, `heartbeat`, `liveness`, `deadman`, `keepalive` or `watchdog` is refused with `keep_skipped(deny_listed)`.
+- **Never renews canaries or heartbeats.** Their expiry _is_ the signal. Any target whose `kind` or `project` contains `canary`, `heartbeat`, `liveness`, `deadman`, `keepalive` or `watchdog` (a separator is allowed, like `dead-man` or `heart_beat`) is refused with `keep_skipped(deny_listed)`, and so is any Prometheus entity.
 - Renewal and its `kept` receipt go in **one transaction**: a `kept` receipt exists only if the renewal landed.
 - Each worker renews at most 200 times per UTC day and stops below 0.005 GLM.
 
@@ -355,7 +355,7 @@ flowchart TB
     RCPT -->|"receipt events"| RELAY
     RELAY --- SQL
     CADDY --> RELAY
-    Web -->|"/health · /sponsor · /ask"| CADDY
+    Web -->|"/sponsor · /ask · /subscribe"| CADDY
     RELAY -->|"DM"| TGU
 
     style Chain fill:#f5f3ff,stroke:#8b5cf6
@@ -367,7 +367,7 @@ flowchart TB
 | Part           | Code                | Runs on                        | Job                                                                                        | State                                                                             |
 | -------------- | ------------------- | ------------------------------ | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
 | 🛰️ **Worker**  | [`worker/`](worker) | Docker, 2 hosts in 2 regions   | Watch every block, decide triggers, write receipts, renew `keep` targets, prove it's alive | checkpoint, unsent receipts, heartbeat key (files)                                |
-| 📨 **Relay**   | [`relay/`](relay)   | Docker, beside worker A        | Turn trusted receipts into Telegram DMs; run the bot; `/health`, `/sponsor`, `/ask`        | SQLite: follows, delivered trigger ids, sponsor claims, newsletter emails         |
+| 📨 **Relay**   | [`relay/`](relay)   | Docker, beside worker A        | DM trusted receipts on Telegram; run the bot; `/health`, `/sponsor`, `/ask`, `/subscribe`  | SQLite: follows, delivered trigger ids, sponsor claims, newsletter emails         |
 | 🌐 **Web app** | [`web/`](web)       | Vercel (static + one function) | Watch form, status pages, my subscriptions, activity, docs; also the Telegram Mini App     | none (reads Arkiv through the keyed pass-through `api/rpc.ts`, or the public RPC) |
 | 📦 **SDK**     | [`sdk/`](sdk)       | your app                       | Build, validate and sign subscriptions from code                                           | none                                                                              |
 | 🧩 **Shared**  | [`shared/`](shared) | imported by all of the above   | Schema, the subscription decoder, trigger ids, the replaying event stream, Arkiv clients   | —                                                                                 |
@@ -658,12 +658,12 @@ Canonical schema: [`arkiv/schema.md`](arkiv/schema.md) · Every query: [Data con
 | Free GLM claims                  | relay's SQLite | relay           | no      |
 | Newsletter emails                | relay's SQLite | relay           | no      |
 
-| Part    | You trust it to                         | It **can't**                                                                |
-| ------- | --------------------------------------- | --------------------------------------------------------------------------- |
-| Arkiv   | store, expire, record who signed        | –                                                                           |
-| Workers | act on time, write a receipt per action | change your subscription, rewrite a receipt, renew without owner permission |
-| Relay   | DM every follower                       | write receipts that count, hide receipts from the status page               |
-| Web app | list the right `TRUSTED_WORKERS`        | change anything on Arkiv                                                    |
+| Part    | You trust it to                         | It **can't**                                                                                                                      |
+| ------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Arkiv   | store, expire, record who signed        | –                                                                                                                                 |
+| Workers | act on time, write a receipt per action | change your subscription, rewrite a receipt, renew without owner permission                                                       |
+| Relay   | DM every follower                       | write receipts that count, hide receipts from the status page                                                                     |
+| Web app | list the right `TRUSTED_WORKERS`        | sign with MetaMask without your approval; a browser or Mini App key lives in the site's storage, so with one you trust the deploy |
 
 **Why those "can't"s hold:** your subscription's `$creator` is your wallet; receipts are created `readonly` (deletion is a public event); non-owner renewal requires `permissionlessExtension`; the status page reads Arkiv through a pass-through that only adds an access key ([`api/rpc.ts`](api/rpc.ts)), or the public RPC; every DM links to its receipt on the explorer.
 
@@ -730,6 +730,7 @@ flowchart LR
         HTTP["http.ts"]
         SP["sponsor.ts<br/>0.02 GLM, own wallet"]
         ASK["ask.ts<br/>docs assistant"]
+        NL["newsletter.ts<br/>email sign-ups"]
         DB[("db.ts · SQLite")]
     end
     ARK[("⛓️ Arkiv")] --> DEL
@@ -739,6 +740,7 @@ flowchart LR
     BOT <--> TG
     HTTP --> SP
     HTTP --> ASK
+    HTTP --> NL
     ASK --> OR["OpenRouter<br/>free models"]
     SP --> ARK
 ```
@@ -748,6 +750,7 @@ flowchart LR
 | `GET /health`     | `{ ok, workersAlive: [...] }` from live heartbeats; cached 30 s so it can't drain quota                                             |
 | `POST /sponsor`   | Sends 0.02 GLM to a new Mini App user; proves a real Telegram user via signed `initData`; one per user and per address              |
 | `POST /ask`       | Streams an answer to a docs question; every docs page goes in one system prompt (no retrieval); daily cap; optional                 |
+| `POST /subscribe` | Adds an email to the newsletter list in the relay's SQLite, never on Arkiv; same reply for new or repeat; per-IP limit              |
 | `POST /subscribe` | Adds an email to the newsletter list in the relay's SQLite, never on Arkiv; same reply for new or repeat; 5 tries per IP per 10 min |
 
 Live: `https://134-122-19-189.sslip.io` · Full API: [Network](web/docs/network.md).
@@ -773,7 +776,7 @@ prometheus/
 │   ├── heartbeat.ts       the 30-min worker entity
 │   └── startup.ts         re-seed targets, rebuild day counts, hourly re-sync
 ├── relay/             📨  Telegram bot + delivery + HTTP API
-│   ├── deliver.ts · bot.ts · db.ts · http.ts · sponsor.ts · ask.ts · index.ts
+│   ├── deliver.ts · bot.ts · db.ts · http.ts · sponsor.ts · ask.ts · newsletter.ts · index.ts
 ├── shared/            🧩  imported by worker, relay, web and SDK
 │   ├── schema.ts          on-chain vocabulary + bounds (mirrors arkiv/schema.md)
 │   ├── subscription.ts    THE decoder: what workers accept
@@ -793,6 +796,7 @@ prometheus/
 ├── scripts/
 │   ├── seed.ts            recreate the demo (targets + subscriptions) in one command
 │   ├── probe.ts           measure what the design takes on trust (free calls, limits)
+│   ├── watch-others.ts    watch other teams' public entities (watch-only, no keep)
 │   └── openrouter-login.ts  get an OpenRouter key for /ask
 ├── arkiv/
 │   ├── schema.md          the canonical on-chain contract
@@ -827,17 +831,18 @@ flowchart LR
     E --> WEB["npm run web<br/>(build-time allow-list only)"]
 ```
 
-| Script              | Does                                                     |
-| ------------------- | -------------------------------------------------------- |
-| `npm run worker`    | Worker A (`.env` + `.env.worker-a`)                      |
-| `npm run worker:b`  | Worker B (`.env` + `.env.worker-b`)                      |
-| `npm run relay`     | The relay (`.env` + `.env.relay`)                        |
-| `npm run web`       | Vite dev server for the web app                          |
-| `npm run web:build` | Production build to `web/dist`                           |
-| `npm run seed`      | Demo targets + subscriptions; watch them fire in minutes |
-| `npm run probe`     | Re-measure Arkiv's costs and limits                      |
-| `npm run check`     | Type-check + formatting                                  |
-| `npm test`          | All unit tests                                           |
+| Script                 | Does                                                           |
+| ---------------------- | -------------------------------------------------------------- |
+| `npm run worker`       | Worker A (`.env` + `.env.worker-a`)                            |
+| `npm run worker:b`     | Worker B (`.env` + `.env.worker-b`)                            |
+| `npm run relay`        | The relay (`.env` + `.env.relay`)                              |
+| `npm run web`          | Vite dev server for the web app                                |
+| `npm run web:build`    | Production build to `web/dist`                                 |
+| `npm run seed`         | Demo targets + subscriptions; watch them fire in minutes       |
+| `npm run probe`        | Re-measure Arkiv's costs and limits                            |
+| `npm run watch-others` | Watch other teams' public entities (needs `WATCH_PRIVATE_KEY`) |
+| `npm run check`        | Type-check + formatting                                        |
+| `npm test`             | All unit tests                                                 |
 
 <details>
 <summary><b>⚙️ Every environment variable</b></summary>
@@ -854,7 +859,8 @@ flowchart LR
 | `WEB_URL`                                                   | relay, seed, web          | Bot menu button, alert Status links, `llms.txt` URLs                  |
 | `OPENROUTER_API_KEY`, `ASK_MODELS`, `ASK_DAILY_CAP`         | relay                     | Optional docs assistant (default cap 45/day)                          |
 | `DEMO_PUBLISHER_PRIVATE_KEY`, `DEMO_SUBSCRIBER_PRIVATE_KEY` | seed                      | Demo wallets                                                          |
-| `VITE_BOT_NAME`, `RELAY_PUBLIC_URL`                         | web build                 | Bot name; relay URL enables free GLM in the Mini App                  |
+| `WATCH_PRIVATE_KEY`                                         | watch-others              | Its own wallet with a little GLM, separate from the demo subscriber   |
+| `VITE_BOT_NAME`, `RELAY_PUBLIC_URL`                         | web build                 | Bot name; relay URL enables Mini App GLM, Ask AI, newsletter form     |
 
 The config loader lists every problem at once and **never prints values**.
 
@@ -886,7 +892,7 @@ flowchart TB
     WEBAPP -->|"https"| CAD
 ```
 
-Two regions on purpose: one host or datacenter outage can't stop both workers.
+Two regions on purpose: one host or datacenter outage can't stop both workers. Telegram alerts come from the one relay on host A, so they pause while host A is down.
 
 ### Host A: worker A + relay + HTTPS
 
@@ -898,14 +904,14 @@ On the host, next to `compose.yaml`, create these files (`chmod 600`, never comm
 
 ```bash
 GIT_SHA=$(git rev-parse --short HEAD) docker compose up -d --build   # first deploy and every update
-curl https://$RELAY_HOST/health                                      # worker A in workersAlive
+curl https://<your RELAY_HOST>/health                               # worker A in workersAlive
 ```
 
 | Service    | Runs                        | Disk (`./state/…`)                     | Public    |
 | ---------- | --------------------------- | -------------------------------------- | --------- |
 | `worker-a` | `node worker/index.ts`      | checkpoint, unsent receipts, heartbeat | no        |
 | `relay`    | `node relay/index.ts`       | follows (`relay.db`) + checkpoint      | via caddy |
-| `caddy`    | HTTPS proxy to `relay:8080` | the certificate                        | 80, 443   |
+| `caddy`    | HTTPS proxy to `relay:8080` | the certificate (`caddy-data` volume)  | 80, 443   |
 
 > [!CAUTION]
 > The `state/` folders **must survive redeploys**. Losing the relay's means every Telegram follow is gone. Firewall: inbound 22, 80, 443 only. Never run a second copy of worker A (nonce race) or the relay (Telegram refuses two pollers).
@@ -961,7 +967,7 @@ On **17 Oct 2026** we seeded 6 short-lived targets and 8 subscriptions, then **s
 | -------------- | ----------------------------------------------------------------------------------------------------------------- |
 | ✅ Failover    | All 8 triggers written by B, **each exactly 15 blocks late**, no duplicate `trigger_id`                           |
 | ✅ Stall timer | B logged `no head for 15s: stall → resubscribe`, replayed 28 blocks, and still wrote its next receipt on schedule |
-| ✅ Coverage    | Activity page showed "covered by B", 0 delivered twice, no gaps                                                   |
+| ✅ Coverage    | Coverage page (now Activity) showed "covered by B", 0 delivered twice, no gaps                                    |
 | ✅ Liveness    | A dropped out of `/health` 26.5 min after it stopped (heartbeat lapsed)                                           |
 | ✅ Recovery    | A restarted, replayed 816 blocks, wrote **no** receipt for anything B had covered                                 |
 

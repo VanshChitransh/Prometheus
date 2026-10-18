@@ -66,7 +66,7 @@ Every time option is a string: a whole number and a unit, `s`, `m`, `h` or `d`. 
 ```ts
 const prometheus = new Prometheus({
   wallet, // required: an Arkiv WalletArkivClient with an account
-  publicClient, // optional: for reads. Default: a Tiramisu client
+  publicClient, // optional: for reads. Default: the wallet, if it has public actions, else a Tiramisu HTTP client
   site: "https://prometheus.example", // optional: adds statusUrl to results
   botName: "prometheus_arkiv_bot", // optional: the Telegram bot
   trustedWorkers: ["0x…"], // optional: whose receipts count. Default: worker A and worker B
@@ -198,7 +198,7 @@ for (const r of await prometheus.receipts(sub.key))
 
 ## Errors
 
-Every check throws a `PrometheusError` with a `code` and a sentence you can show a user. Network failures throw the underlying error; the free Arkiv reads (`arkiv_getEntity`, `arkiv_getEntityCount`) wrap it in an `RpcError` whose `cause` is the original.
+Every check throws a `PrometheusError` with a `code` and a sentence you can show a user. Network failures throw the underlying error; the free Arkiv reads (`arkiv_getEntity`, `arkiv_getEntityCount`) wrap it in an error named `RpcError` (check `e.name`; it isn't exported) whose `cause` is the original.
 
 ```ts
 import { PrometheusError } from "prometheus-arkiv";

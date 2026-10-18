@@ -26,14 +26,14 @@ Prometheus keeps all of its state on Arkiv as three kinds of entity: subscriptio
 
 ## Wallets that create entities
 
-| Role            | Address                                      | Creates                                                                                                        |
-| --------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Worker A        | `0x6a693Fd642c1F8F5E78321C2722208A3791eE79B` | `worker`, `receipt`                                                                                            |
-| Worker B        | `0xa70C8245582d173b04cAe453E9fF6D17a6e58294` | `worker`, `receipt`                                                                                            |
-| Demo publisher  | `0x07df075e19C8682E0BbF4D1B018BA3Ab8fD174F2` | the demo entities that get watched                                                                             |
-| Demo subscriber | `0xa286a6fc7bF81CE5A18cFB52CF9C2040724aC8Ee` | demo `subscription`s                                                                                           |
-| Any user        | their own wallet                             | `subscription`                                                                                                 |
-| Sponsor (relay) | `0x64E80982DEEfe1296CfD6483A30Fd4a46EbA7C22` | no entities in normal operation (three test subscriptions from 18 Oct remain); it only sends small GLM top-ups |
+| Role            | Address                                      | Creates                                                                                                                                                      |
+| --------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Worker A        | `0x6a693Fd642c1F8F5E78321C2722208A3791eE79B` | `worker`, `receipt`                                                                                                                                          |
+| Worker B        | `0xa70C8245582d173b04cAe453E9fF6D17a6e58294` | `worker`, `receipt`                                                                                                                                          |
+| Demo publisher  | `0x07df075e19C8682E0BbF4D1B018BA3Ab8fD174F2` | the demo entities that get watched                                                                                                                           |
+| Demo subscriber | `0xa286a6fc7bF81CE5A18cFB52CF9C2040724aC8Ee` | demo `subscription`s                                                                                                                                         |
+| Any user        | their own wallet                             | `subscription`                                                                                                                                               |
+| Sponsor (relay) | `0x64E80982DEEfe1296CfD6483A30Fd4a46EbA7C22` | no entities in normal operation; it is also the team's own browser test wallet, so a few test subscriptions it signed exist; it only sends small GLM top-ups |
 
 The entity a subscription watches is called the target. It can be any entity on Arkiv, from any app. Prometheus reads it and, for the `keep` trigger, renews it, but never writes its data.
 
@@ -106,7 +106,7 @@ Search tree rules:
 Workers read each subscription when they start, once an hour, and whenever one is created or edited. They ignore it if:
 
 - an attribute is missing, has the wrong type or is out of bounds (see [Limits](./limits.md));
-- the payload isn't JSON with `v: 1` and a non-empty `label`;
+- the payload isn't JSON with `v: 1` and a non-empty `label` (one line, at most 80 characters);
 - the target doesn't exist. Only `expired` may watch a target that has already expired;
 - the creator already has 20 older subscriptions. Workers serve each wallet's oldest 20.
 

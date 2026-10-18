@@ -68,14 +68,14 @@ Arkiv writes a log for every entity change, from the address `0x4400000000000000
 
 ## The Prometheus deployment
 
-| Part           | Value                                                                                | Notes                                                                                                               |
-| -------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| Worker A       | `0x6a693Fd642c1F8F5E78321C2722208A3791eE79B`                                         | New York. Delay 0: acts first.                                                                                      |
-| Worker B       | `0xa70C8245582d173b04cAe453E9fF6D17a6e58294`                                         | San Francisco. Waits 15 blocks (30 seconds), then acts only if no trusted receipt exists.                           |
-| Sponsor wallet | `0x64E80982DEEfe1296CfD6483A30Fd4a46EbA7C22`                                         | Sends free GLM to new users. Creates no entities in normal operation (three test subscriptions from 18 Oct remain). |
-| Relay          | `https://134-122-19-189.sslip.io`                                                    | Telegram delivery and the HTTP API below. Runs on the same host as worker A.                                        |
-| Telegram bot   | [@prometheus_arkiv_bot](https://t.me/prometheus_arkiv_bot)                           | Delivers alerts as DMs.                                                                                             |
-| Source         | [github.com/VanshChitransh/Prometheus](https://github.com/VanshChitransh/Prometheus) | MIT license.                                                                                                        |
+| Part           | Value                                                                                | Notes                                                                                                                                                             |
+| -------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Worker A       | `0x6a693Fd642c1F8F5E78321C2722208A3791eE79B`                                         | New York. Delay 0: acts first.                                                                                                                                    |
+| Worker B       | `0xa70C8245582d173b04cAe453E9fF6D17a6e58294`                                         | San Francisco. Waits 15 blocks (30 seconds), then acts only if no trusted receipt exists.                                                                         |
+| Sponsor wallet | `0x64E80982DEEfe1296CfD6483A30Fd4a46EbA7C22`                                         | Sends free GLM to new users. Creates no entities in normal operation; it is also the team's own browser test wallet, so a few test subscriptions it signed exist. |
+| Relay          | `https://134-122-19-189.sslip.io`                                                    | Telegram delivery and the HTTP API below. Runs on the same host as worker A.                                                                                      |
+| Telegram bot   | [@prometheus_arkiv_bot](https://t.me/prometheus_arkiv_bot)                           | Delivers alerts as DMs.                                                                                                                                           |
+| Source         | [github.com/VanshChitransh/Prometheus](https://github.com/VanshChitransh/Prometheus) | MIT license.                                                                                                                                                      |
 
 To trust the same workers as the live relay and web app, use:
 
@@ -137,7 +137,7 @@ The relay runs these checks in order. The first one that fails decides the answe
 | `initData` is at most 1 hour old                                      | 401    | "This Telegram session is over an hour old. Close Prometheus and open it again from the bot."                       |
 | `address` is a valid address                                          | 400    | "That isn't a valid address."                                                                                       |
 | Neither this Telegram user nor this address was sponsored before      | 409    | "You've already been sponsored. Need GLM? Use the faucet."                                                          |
-| Less than 1 GLM sent in the last 24 hours, counting this one          | 429    | "Today's free GLM is used up. Try the faucet."                                                                      |
+| At most 1 GLM sent in the last 24 hours, counting this one            | 429    | "Today's free GLM is used up. Try the faucet."                                                                      |
 | The wallet holds less than 0.01 GLM                                   | 409    | "This wallet already has GLM."                                                                                      |
 | The transfer was sent                                                 | 503    | "Couldn't send GLM right now. Try again later. Need GLM? Use the faucet." Your claim is released, so you can retry. |
 
@@ -155,14 +155,14 @@ The docs assistant. Send the conversation so far, ending with the reader's quest
 
 The answer streams back as `text/event-stream`: one `data: {"t": "<text>"}` event per piece of text, then `data: [DONE]`. If the model fails after the stream starts, the last event is `data: {"error": "The assistant failed. Try again."}`.
 
-| Check                                                                                                                                   | Status | `error`                                                                 |
-| --------------------------------------------------------------------------------------------------------------------------------------- | ------ | ----------------------------------------------------------------------- |
-| The relay has an `OPENROUTER_API_KEY`                                                                                                   | 503    | "The docs assistant is off."                                            |
-| Body is at most 65,536 bytes                                                                                                            | 413    | "Request too large."                                                    |
-| Body is JSON                                                                                                                            | 400    | "Send JSON."                                                            |
-| `messages` is a list of 1 to 40 turns, each with a role (`user` or `assistant`) and text, ending with a question under 1,000 characters | 400    | The rule that failed, for example "End with a question."                |
-| At most 10 questions from your IP in the last 10 minutes                                                                                | 429    | "Too many questions. Try again in a few minutes."                       |
-| The shared daily cap (`ASK_DAILY_CAP`, default 45 per UTC day) isn't reached                                                            | 429    | "The docs assistant is out of questions for today. Try again tomorrow." |
+| Check                                                                                                                                                     | Status | `error`                                                                 |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ----------------------------------------------------------------------- |
+| The relay has an `OPENROUTER_API_KEY`                                                                                                                     | 503    | "The docs assistant is off."                                            |
+| Body is at most 65,536 bytes                                                                                                                              | 413    | "Request too large."                                                    |
+| Body is JSON                                                                                                                                              | 400    | "Send JSON."                                                            |
+| `messages` is a list of 1 to 40 turns, each with a role (`user` or `assistant`) and text, ending with a question, every question at most 1,000 characters | 400    | The rule that failed, for example "End with a question."                |
+| At most 10 questions from your IP in the last 10 minutes                                                                                                  | 429    | "Too many questions. Try again in a few minutes."                       |
+| The shared daily cap (`ASK_DAILY_CAP`, default 45 per UTC day) isn't reached                                                                              | 429    | "The docs assistant is out of questions for today. Try again tomorrow." |
 
 ### POST /subscribe
 
@@ -172,7 +172,7 @@ Adds an email address to the Prometheus newsletter. It's kept in the relay's dat
 { "email": "you@example.com" }
 ```
 
-The answer is `{ "ok": true }` for a new address and for one already on the list, so nobody can check who signed up. Refusals: `429` "Too many tries. Try again in a few minutes." (more than 5 tries from one IP in 10 minutes), `400` "That doesn't look like an email address." and `503` "Sign-ups are closed for now." (the list is full).
+The answer is `{ "ok": true }` for a new address and for one already on the list, so nobody can check who signed up. Refusals: `429` "Too many tries. Try again in a few minutes." (more than 5 tries from one IP in 10 minutes), `400` "That doesn't look like an email address.", `503` "Sign-ups are closed for now." (the list is full) and `503` "Sign-ups are off." (the relay has sign-ups turned off).
 
 ### Other answers
 

@@ -707,8 +707,8 @@ function Ways({ web, onWeb }: { web: boolean; onWeb: () => void }) {
         </div>
         <span className="mt-4 text-[17px] font-semibold">In Telegram</span>
         <span className="mt-1 text-[14px] leading-[1.45] text-ink-2">
-          No wallet, no gas. The bot makes a wallet for you, covers the fee, and
-          your alerts arrive in the same chat.
+          No wallet, no gas. We make a wallet for you, cover the fee, and your
+          alerts arrive in the same chat.
         </span>
         <span className="mt-auto inline-flex items-center gap-1 pt-4 text-[14px] font-medium text-accent">
           Open in Telegram <ArrowUpRight className="size-4" />
@@ -762,8 +762,8 @@ function Created({ entityKey, label }: { entityKey: Hex; label: string }) {
           Subscription created
         </h1>
         <p className="mt-1 text-ink-2">
-          {label ? `"${label}" is` : "It's"} live. Workers pick it up within a
-          block.
+          {label ? `"${label}" is` : "It's"} live. Workers pick it up within
+          seconds.
         </p>
         <div className="mt-5 flex justify-center">
           <Hash value={entityKey} />
