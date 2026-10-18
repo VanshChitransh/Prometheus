@@ -12,28 +12,37 @@ import {
   BaseError,
   checksumAddress,
   custom,
+  fallback,
   http,
   HttpRequestError,
   publicActions,
   webSocket,
   type EIP1193Provider,
   type Hex,
+  type Transport,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 // retryCount 0: a 429 surfaces in seconds instead of viem silently honouring Retry-After (LLD §9).
-const httpTransport = (url: string, accessKey?: string) =>
-  http(url, {
-    retryCount: 0,
-    fetchOptions: accessKey
-      ? { headers: { "X-API-KEY": accessKey } }
-      : undefined,
-  });
+// Several URLs are tried in order: the next one answers whenever the one before fails (any error but
+// a revert or a user's rejection).
+const httpTransport = (
+  url: string | string[],
+  accessKey?: string,
+): Transport =>
+  typeof url === "string"
+    ? http(url, {
+        retryCount: 0,
+        fetchOptions: accessKey
+          ? { headers: { "X-API-KEY": accessKey } }
+          : undefined,
+      })
+    : fallback(url.map((u) => httpTransport(u, accessKey)));
 
 // cacheTime 0: the chain sets no blockTime, so viem held getBlockNumber() for 4 s (~2 blocks) and
 // "has the HTTP node reached this block?" polls kept reading a stale head. Here only, not on the
 // chain: that would also make the wallet poll for receipts 4× as often.
-export const publicHttp = (url: string, accessKey?: string) =>
+export const publicHttp = (url: string | string[], accessKey?: string) =>
   createPublicClient({
     chain: tiramisu,
     cacheTime: 0,
@@ -54,7 +63,7 @@ export const publicWs = (url: string) =>
 // No retries here either: retrying a write is writer.ts's job, because it owns the nonce.
 export const walletClient = (
   privateKey: Hex,
-  url: string,
+  url: string | string[],
   accessKey?: string,
 ) =>
   createWalletClient({

@@ -21,9 +21,12 @@ declare global {
 }
 
 const RPC = __ARKIV_HTTP__;
+// Anonymous reads get ~100 an hour per visitor, so they go through /api/rpc (api/rpc.ts), which adds
+// the access key server-side. The public RPC answers if that fails, e.g. under `vite dev`.
+const READS = [`${location.origin}/api/rpc`, RPC];
 
-// Reads are free and need no wallet. No access key: the bundle is public.
-export const reader = publicHttp(RPC);
+// Reads are free and need no wallet. No access key here: the bundle is public.
+export const reader = publicHttp(READS);
 
 export type Wallet = {
   kind: "metamask" | "local";
@@ -111,7 +114,7 @@ export async function useLocalKey(): Promise<Wallet> {
   return connected({
     kind: "local",
     address: privateKeyToAddress(key),
-    client: walletClient(key, RPC) as WalletArkivClient,
+    client: walletClient(key, READS) as WalletArkivClient,
     storage: store.where,
   });
 }
