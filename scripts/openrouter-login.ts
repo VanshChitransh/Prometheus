@@ -91,6 +91,7 @@ const test = await fetch("https://openrouter.ai/api/v1/chat/completions", {
   body: JSON.stringify({
     models: FREE_MODELS,
     max_tokens: 20,
+    reasoning: { enabled: false }, // or a reasoning model spends all 20 tokens thinking
     messages: [{ role: "user", content: "Reply with the word: ready" }],
   }),
 });
