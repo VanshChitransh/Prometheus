@@ -35,6 +35,9 @@ export type Wallet = {
 let current: Wallet | undefined;
 export const wallet = () => current;
 
+let listening = false; // one accountsChanged listener, however often we connect
+let switching = false; // our own account picker is open: its accountsChanged is expected
+
 // Disconnecting forgets the wallet for this page, not the key: a stored key stays put, and the flag
 // stops main.tsx bringing it back on reload until the user connects again.
 const OFF = "prometheus:disconnected";
@@ -69,12 +72,32 @@ export async function connectMetaMask(): Promise<Wallet> {
     ],
   });
   // A different account would leave this page signing as the old address.
-  eth.on("accountsChanged", () => location.reload());
+  if (!listening) {
+    listening = true;
+    eth.on("accountsChanged", ([a]) => {
+      if (switching || current?.kind !== "metamask") return;
+      if (a?.toLowerCase() !== current.address.toLowerCase()) location.reload();
+    });
+  }
   return connected({
     kind: "metamask",
     address,
     client: injectedWalletClient(eth, address) as WalletArkivClient,
   });
+}
+
+// Reopens MetaMask's account picker, even when this site is already connected. Cancelling throws 4001.
+export async function switchMetaMask(): Promise<Wallet> {
+  switching = true;
+  try {
+    await window.ethereum!.request({
+      method: "wallet_requestPermissions",
+      params: [{ eth_accounts: {} }],
+    });
+    return await connectMetaMask();
+  } finally {
+    switching = false;
+  }
 }
 
 // Reuses the stored key, or makes one. Persistent storage, so reopening the page keeps it.
