@@ -1,4 +1,4 @@
-// The shell: one hash-routed bundle (LLD §1) that is both the website (home, docs, blog, coverage) and
+// The shell: one hash-routed bundle (LLD §1) that is both the website (home, docs, coverage) and
 // the app (watch, status, subscriptions). The header changes with it: site pages get the site nav and
 // the wallet; app pages also get a tab bar on phones. The wallet lives in a context.
 import {
@@ -19,7 +19,6 @@ import {
 } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { Toaster } from "sonner";
-import { Blog, BlogPost } from "./pages/Blog.tsx";
 import { Coverage } from "./pages/Coverage.tsx";
 import { Docs } from "./pages/Docs.tsx";
 import { Home } from "./pages/Home.tsx";
@@ -49,8 +48,6 @@ type Layout = "full" | "wide" | "app";
 const ROUTES: [RegExp, ComponentType<{ params: string[] }>, Layout][] = [
   [/^\/$/, Home, "full"],
   [/^\/docs(?:\/([a-z0-9-]+))?\/?$/, Docs, "wide"],
-  [/^\/blog\/?$/, Blog, "app"],
-  [/^\/blog\/([a-z0-9-]+)$/, BlogPost, "app"],
   [
     /^\/new(?:\/(0x[0-9a-fA-F]{64}))?(?:\/(expiring|expired|changed|keep|new_match))?$/,
     New,
@@ -67,7 +64,6 @@ const NAV: [string, string][] = [
   ["#/new", "Watch"],
   ["#/docs", "Docs"],
   ["#/docs/sdk", "SDK"],
-  ["#/blog", "Blog"],
   ["#/coverage", "Activity"],
 ];
 const APP_NAV: [string, string, LucideIcon][] = [
@@ -276,7 +272,6 @@ export function App() {
 const FOOTER: [string, string][] = [
   ["#/docs", "Docs"],
   ["#/docs/sdk", "SDK"],
-  ["#/blog", "Blog"],
   ["#/coverage", "Activity"],
   ["#/docs/run-a-worker", "Run a worker"],
   ["https://github.com/VanshChitransh/Prometheus", "GitHub"],
