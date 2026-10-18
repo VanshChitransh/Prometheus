@@ -7,10 +7,11 @@ import {
   Copy,
   FileText,
   Search,
+  Sparkles,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { DOCS, DOCS_NAV, docBySlug, render } from "../content.ts";
-import { askEnabled } from "../ui/AskPanel.tsx";
+import { AskBar, askEnabled, openAsk } from "../ui/AskPanel.tsx";
 import { DocsSearch, openSearch, searchKey } from "../ui/DocsSearch.tsx";
 import { cx } from "../ui/kit.tsx";
 
@@ -28,15 +29,11 @@ export function Docs({ params: [slug] }: { params: string[] }) {
   const [prev, next] = [DOCS[i - 1], DOCS[i + 1]];
 
   return (
-    <div className="grid grid-cols-1 gap-10 lg:grid-cols-[210px_minmax(0,1fr)] xl:grid-cols-[210px_minmax(0,1fr)_190px]">
+    <div className="docs-grid grid grid-cols-1 gap-10 lg:grid-cols-[210px_minmax(0,1fr)] xl:grid-cols-[210px_minmax(0,1fr)_190px]">
       <Sidebar current={doc.slug} />
       <DocsSearch />
 
-      {/* bottom padding: room for the pinned "Ask the docs" bar */}
-      <article
-        className={cx("min-w-0", askEnabled && "pb-20")}
-        data-doc={doc.slug}
-      >
+      <article className="min-w-0" data-doc={doc.slug}>
         <div className="font-mono text-[11px] tracking-[0.08em] text-ink-3 uppercase">
           {doc.section}
         </div>
@@ -111,10 +108,11 @@ export function Docs({ params: [slug] }: { params: string[] }) {
         >
           Edit this page on GitHub
         </a>
+        <AskBar />
       </article>
 
       {headings.length > 1 && (
-        <aside className="hidden xl:block">
+        <aside className="docs-toc hidden xl:block">
           <div className="sticky top-24">
             <div className="font-mono text-[11px] tracking-[0.08em] text-ink-3 uppercase">
               On this page
@@ -191,11 +189,28 @@ function Sidebar({ current }: { current: string }) {
       </kbd>
     </button>
   );
+  // Search, and beside it the assistant (when the relay offers one).
+  const tools = (
+    <div className="flex gap-2">
+      {find}
+      {askEnabled && (
+        <button
+          type="button"
+          onClick={() => openAsk()}
+          aria-label="Ask the docs assistant"
+          title="Ask the docs assistant"
+          className="grid size-10 shrink-0 cursor-pointer place-items-center rounded-[12px] border border-sep text-accent transition-colors hover:border-ink-3"
+        >
+          <Sparkles className="size-4" />
+        </button>
+      )}
+    </div>
+  );
   return (
     <>
       {/* phones: the same list behind a disclosure */}
       <div className="space-y-3 lg:hidden">
-        {find}
+        {tools}
         <details className="rounded-[14px] border border-sep px-4 py-3">
           <summary className="cursor-pointer text-[14px] font-medium">
             Docs menu
@@ -205,7 +220,7 @@ function Sidebar({ current }: { current: string }) {
       </div>
       <aside className="hidden lg:block">
         <div className="sticky top-24 max-h-[calc(100dvh-7rem)] overflow-y-auto pr-2 pb-8">
-          <div className="mb-7">{find}</div>
+          <div className="mb-7">{tools}</div>
           {links}
         </div>
       </aside>
