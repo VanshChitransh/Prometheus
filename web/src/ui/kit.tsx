@@ -12,6 +12,8 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
+import { BaseError } from "viem";
+import { retryAfter } from "../../../shared/arkiv.ts";
 
 export const cx = (...c: (string | false | null | undefined)[]) =>
   c.filter(Boolean).join(" ");
@@ -548,6 +550,17 @@ export function Skeleton({ className }: { className?: string }) {
   );
 }
 
+// viem's message carries the whole request body; a 429 gets words a visitor can act on.
+export function errorText(e: unknown) {
+  const wait = retryAfter(e);
+  if (wait !== undefined) {
+    const min = Math.ceil(wait / 60);
+    return `Arkiv's free reads for your network are used up${min ? ` for the next ${min} min` : " for now"}. Try again then.`;
+  }
+  if (e instanceof BaseError) return e.shortMessage;
+  return e instanceof Error ? e.message : String(e);
+}
+
 // Errors say what happened, in the interface's voice (frontend-design: errors don't apologise).
 export function ErrorText({
   error,
@@ -565,7 +578,7 @@ export function ErrorText({
       )}
     >
       <AlertCircle className="mt-px size-4 shrink-0" />
-      <span>{error instanceof Error ? error.message : String(error)}</span>
+      <span className="min-w-0 wrap-break-word">{errorText(error)}</span>
     </p>
   );
 }

@@ -13,6 +13,7 @@ import {
   checksumAddress,
   custom,
   http,
+  HttpRequestError,
   publicActions,
   webSocket,
   type EIP1193Provider,
@@ -112,6 +113,16 @@ export function rpcCode(e: unknown): number {
         ) as { code?: number; status?: number } | null)
       : null;
   return hit?.code ?? hit?.status ?? -1;
+}
+
+// Seconds until a 429 lifts (Retry-After, 0 if unsent), wherever it sits in the error chain;
+// undefined for any other error. Arkiv sends it when an IP's anonymous query budget is spent
+// (10,000 units, ~100 queries, measured 18 Oct).
+export function retryAfter(e: unknown): number | undefined {
+  let x = e;
+  while (x instanceof Error && !(x instanceof HttpRequestError)) x = x.cause;
+  if (!(x instanceof HttpRequestError) || x.status !== 429) return undefined;
+  return Number(x.headers?.get("retry-after")) || 0;
 }
 
 // The $creator clause every receipt query needs: anyone can compute a trigger_id, so only receipts

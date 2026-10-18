@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { PublicArkivClient } from "@arkiv-network/sdk";
-import { publicHttp, rawGetEntity } from "./arkiv.ts";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { publicHttp, rawGetEntity, retryAfter } from "./arkiv.ts";
 
 const A = "0x6a693Fd642c1F8F5E78321C2722208A3791eE79B";
 const KEY = `0x${"a".repeat(64)}` as const;
@@ -52,4 +54,28 @@ test("rawGetEntity reads creationFlags in every form the SDK accepts", async () 
     readonly: false,
     permissionlessExtension: false,
   });
+});
+
+test("retryAfter finds Arkiv's 429 through viem and RpcError, and nothing else", async () => {
+  // Answers like the node did on 18 Oct once this IP's anonymous budget was spent.
+  const server = createServer((_, res) => {
+    res.writeHead(429, {
+      "retry-after": "2000",
+      "content-type": "application/json",
+    });
+    res.end('{"error":"ANON_COST_LIMITED"}');
+  });
+  await new Promise<void>((r) => server.listen(0, r));
+  const client = publicHttp(
+    `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+  );
+  try {
+    const viaSdk = await client.query("project = str('x')").catch((e) => e);
+    assert.equal(retryAfter(viaSdk), 2000);
+    const viaRaw = await rawGetEntity(client, KEY).catch((e) => e);
+    assert.equal(retryAfter(viaRaw), 2000);
+    assert.equal(retryAfter(new Error("boom")), undefined);
+  } finally {
+    server.close();
+  }
 });
